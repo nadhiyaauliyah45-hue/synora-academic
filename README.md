@@ -12,7 +12,7 @@ Universitas Muhammadiyah Cirebon · Proyek Pemrograman Berbasis Platform · Kelo
 
 </div>
 
-**Repositori:** https://github.com/nadhiyaauliyah45-hue/synora-academic
+**Repositori:** https://nadhiyaauliyah45-hue.github.io/synora-academic/
 
 ![Cover SYNORA](assets/images/synora-cover.png)
 
