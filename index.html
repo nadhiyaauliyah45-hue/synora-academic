@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login — SYNORA</title>
+  <link rel="icon" href="assets/logo/synora-logo.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/icons/favicon-48.png" type="image/png" sizes="48x48">
+  <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+  <meta property="og:title" content="SYNORA Academic Integrated System">
+  <meta property="og:image" content="assets/images/synora-cover.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="vendor/bootstrap-icons/bootstrap-icons.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/login.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <link rel="stylesheet" href="css/academic.css">
+  <link rel="stylesheet" href="css/themes.css">
+</head>
+<body>
+  <div class="login-page">
+    <div class="login-wrap">
+      <section class="login-hero">
+        <div class="brand">
+          <img src="assets/logo/synora-logo.svg" alt="Logo SYNORA">
+          <h1>SYNORA</h1>
+          <p>One Class, One Connected Space</p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <span><i class="bi bi-person-check-fill"></i> Absensi</span>
+          <span><i class="bi bi-wallet2"></i> Keuangan</span>
+          <span><i class="bi bi-collection-fill"></i> Perpustakaan</span>
+          <span><i class="bi bi-camera-fill"></i> Memories</span>
+          <span><i class="bi bi-shuffle"></i> Class Spin</span>
+        </div>
+      </section>
+
+      <section class="login-panel">
+        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <h2>Login ke SYNORA</h2>
+        <p class="sub">Masuk untuk mengakses sistem kelas</p>
+
+        <div id="setup-banner" class="setup-banner hidden" style="margin-bottom:14px">
+          <b>Supabase belum dikonfigurasi.</b> Isi <code>SUPABASE_URL</code> dan <code>SUPABASE_ANON_KEY</code>
+          di <code>js/config.js</code>, lalu muat ulang halaman. Lihat README.md.
+        </div>
+
+        <form id="login-form" class="login-form" novalidate>
+          <div id="login-error" class="login-error hidden" role="alert"></div>
+          <div class="input-icon">
+            <i class="bi bi-person"></i>
+            <input class="input" id="nim" name="nim" type="text" placeholder="NIM / Username (contoh: 240511160)" autocomplete="username" required>
+          </div>
+          <div class="input-icon">
+            <i class="bi bi-lock"></i>
+            <input class="input" id="password" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+            <button type="button" class="toggle-pass" id="toggle-eye" aria-label="Tampilkan password"><i class="bi bi-eye"></i></button>
+          </div>
+          <label class="check"><input type="checkbox" id="show-pass"> Tampilkan Password</label>
+          <button class="btn btn-primary btn-block" id="btn-login" type="submit">Masuk <i class="bi bi-arrow-right"></i></button>
+          <div class="login-links"><a href="#" id="forgot-link">Lupa Password?</a></div>
+        </form>
+
+        <p class="login-foot">TI24D • Universitas Muhammadiyah Cirebon<br>Akun dibuat oleh Ketua Kelas. Tidak ada pendaftaran mandiri.<br><span id="ver">versi login 3</span></p>
+      </section>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initLoginPage } from './js/auth.js?v=3';
+    import { applyTheme } from './js/layout.js';
+    import { applyCachedBackground, loadBackground } from './js/background.js';
+    import { isConfigured } from './js/supabase.js';
+    applyTheme();
+    applyCachedBackground();
+    if (isConfigured) loadBackground();
+    initLoginPage();
+  </script>
+</body>
+</html>

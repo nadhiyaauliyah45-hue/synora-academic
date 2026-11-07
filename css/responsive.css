@@ -1,0 +1,69 @@
+/* SYNORA — responsive.css */
+@media (max-width: 1200px) {
+  .grid-4:not(.stats) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .member-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .spin-layout { grid-template-columns: 1fr; }
+  .cal-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 960px) {
+  .only-mobile { display: inline-flex !important; }
+  .sidebar { transform: translateX(-100%); transition: transform .25s ease; }
+  .sidebar.open { transform: none; }
+  .sidebar-backdrop.show { display: block; position: fixed; inset: 0; background: rgba(56,39,31,.5); z-index: 45; }
+  .main { margin-left: 0; }
+  .topbar { padding: 0 16px; gap: 10px; }
+  .profile-chip .who { display: none; }
+  .content { padding: 18px 16px; }
+  .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-nav { flex-direction: row; overflow-x: auto; }
+  .settings-nav h3 { display: none; }
+  .settings-nav button { white-space: nowrap; }
+  .chat-layout { grid-template-columns: 1fr; height: auto; }
+  .chat-rooms { display: flex; gap: 6px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .room-item { width: auto; flex: none; }
+  .chat-main { height: 70vh; }
+  .welcome .art { display: none; }
+  .extras { grid-template-columns: 1fr; }
+  .profile-detail { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .grid-2, .grid-3, .grid-4:not(.stats) { grid-template-columns: 1fr; }
+  .grid.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-grid { grid-template-columns: 1fr; }
+  .member-grid { grid-template-columns: 1fr; }
+  .mem-hero { flex-direction: column; align-items: flex-start; padding: 24px; }
+  .mem-hero .polaroids { display: none; }
+  .mem-hero h1 { font-size: 28px; }
+  .page-header h1 { font-size: 20px; }
+  .toolbar .input, .toolbar .select { width: 100%; }
+  .modal-backdrop { padding: 8px; align-items: flex-end; }
+  .modal { max-height: 94vh; border-radius: 20px 20px 12px 12px; }
+  .cal-cell { min-height: 58px; padding: 3px; }
+  .ev-chip { font-size: 0; height: 6px; padding: 0; }
+  .week-grid { grid-template-columns: 1fr; }
+  .week-col { min-height: 0; }
+  .game-menu { grid-template-columns: 1fr; }
+  .member-pick { grid-template-columns: 1fr; }
+  .msg { max-width: 92%; }
+  .kv { grid-template-columns: 1fr; gap: 2px 0; }
+  .kv dd { margin-bottom: 8px; }
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 36px; }
+  .toast-container { left: 12px; right: 12px; max-width: none; }
+}
+
+/* Mencegah overflow horizontal: item grid/flex boleh menyusut */
+.grid > *, .dash-grid > *, .cal-layout > *, .settings-layout > *, .spin-layout > *, .chat-layout > *, .profile-detail > * { min-width: 0; }
+.stat-card > div:last-child { min-width: 0; }
+.stat-card .val { overflow-wrap: anywhere; }
+.settings-nav { max-width: 100%; }
+@media (max-width: 640px) {
+  .stat-card { padding: 12px; gap: 10px; }
+  .stat-card .ic { width: 38px; height: 38px; font-size: 18px; }
+  .stat-card .val { font-size: clamp(14px, 4.4vw, 20px); }
+  .cal-head h3 { min-width: 0; flex: 1; }
+}

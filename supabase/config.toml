@@ -1,0 +1,5 @@
+# Konfigurasi Supabase CLI untuk SYNORA (menggantikan hasil `supabase init`).
+project_id = "corpunnprtmguhpnyiqe"
+
+[functions.admin-users]
+verify_jwt = true

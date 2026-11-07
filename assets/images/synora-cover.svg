@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFF9F0"/><stop offset="1" stop-color="#F4E8D6"/></linearGradient><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F29A3D"/><stop offset="1" stop-color="#C96645"/></linearGradient></defs>
+<rect width="1200" height="630" fill="url(#bg)"/>
+<circle cx="1050" cy="120" r="220" fill="#F29A3D" opacity=".12"/><circle cx="1130" cy="560" r="160" fill="#C96645" opacity=".12"/><circle cx="120" cy="590" r="140" fill="#573725" opacity=".06"/>
+<g transform="translate(110,150) scale(3.4)"><path d="M47 15H27c-6.5 0-10.5 3-10.5 8s4 7 10.5 8l11 2c6.5 1 10.5 3 10.5 8s-4 8.5-10.5 8.5H15" fill="none" stroke="url(#g)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9 47c14 9 32 6 46-9" fill="none" stroke="#573725" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
+<circle cx="52" cy="12" r="3" fill="#E98532"/></g>
+<text x="360" y="255" font-family="Poppins,Segoe UI,Arial,sans-serif" font-weight="700" font-size="92" letter-spacing="6" fill="#573725">SYNORA</text>
+<text x="364" y="305" font-family="Poppins,Segoe UI,Arial,sans-serif" font-weight="500" font-size="28" letter-spacing="5" fill="#C96645">ACADEMIC INTEGRATED SYSTEM</text>
+<text x="364" y="380" font-family="Poppins,Segoe UI,Arial,sans-serif" font-size="26" fill="#573725" opacity=".85">Dari PMB hingga alumni dalam satu platform</text>
+<g font-family="Poppins,Segoe UI,Arial,sans-serif" font-size="22" fill="#573725"><rect x="364" y="430" width="150" height="44" rx="22" fill="#fff" stroke="#E8D5BC"/><text x="439" y="460" text-anchor="middle">Fakultas</text><rect x="530" y="430" width="150" height="44" rx="22" fill="#fff" stroke="#E8D5BC"/><text x="605" y="460" text-anchor="middle">Prodi</text><rect x="696" y="430" width="150" height="44" rx="22" fill="#fff" stroke="#E8D5BC"/><text x="771" y="460" text-anchor="middle">Kelas</text></g>
+<text x="364" y="560" font-family="Poppins,Segoe UI,Arial,sans-serif" font-size="20" fill="#573725" opacity=".7">Teknik Informatika · Universitas Muhammadiyah Cirebon</text></svg>

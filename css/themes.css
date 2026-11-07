@@ -1,0 +1,51 @@
+/* SYNORA — themes.css : tema tampilan per perangkat (Terang / Gelap).
+   Warna sidebar, tombol utama, dan aksen tetap identitas SYNORA di semua tema. */
+:root[data-theme="dark"] {
+  --card-bg: rgba(52, 36, 28, .94);
+  --soft-bg: #45302A;
+  --input-bg: #3B2A22;
+  --text: #F6EBDD;
+  --muted: #C5AE98;
+  --border: #5E4436;
+  --beige: #4A342A;
+  --shadow: 0 6px 22px rgba(0, 0, 0, .35);
+  --app-bg-overlay: rgba(34, 22, 17, .84);
+  --default-bg:
+    radial-gradient(circle at 88% 6%, rgba(233, 133, 50, .14), transparent 40%),
+    linear-gradient(135deg, #2B1C15, #3A261C);
+}
+:root[data-theme="dark"] body { background: #2B1C15; }
+:root[data-theme="dark"] h1, :root[data-theme="dark"] h2, :root[data-theme="dark"] h3, :root[data-theme="dark"] h4 { color: #FBEBD6; }
+:root[data-theme="dark"] .topbar { background: rgba(43, 28, 21, .85); }
+:root[data-theme="dark"] .search input,
+:root[data-theme="dark"] .icon-btn,
+:root[data-theme="dark"] .dropdown-menu,
+:root[data-theme="dark"] .modal,
+:root[data-theme="dark"] .table-wrap,
+:root[data-theme="dark"] .cal-cell,
+:root[data-theme="dark"] .week-col,
+:root[data-theme="dark"] .group-card,
+:root[data-theme="dark"] .chat-compose,
+:root[data-theme="dark"] .stepper,
+:root[data-theme="dark"] .search-results { background: #3B2A22; color: var(--text); }
+:root[data-theme="dark"] .notif-item { background: #3B2A22; border-color: #5E4436; color: var(--text); }
+:root[data-theme="dark"] .notif-item.unread { background: #4D3427; }
+:root[data-theme="dark"] .table th { background: #45302A; }
+:root[data-theme="dark"] .table td { border-color: #4F3A2E; }
+:root[data-theme="dark"] .table tbody tr:hover { background: #45302A; }
+:root[data-theme="dark"] .bubble { background: #4A382E; }
+:root[data-theme="dark"] .msg.me .bubble { background: #2F5A3C; }
+:root[data-theme="dark"] .chat-msgs { background: rgba(0,0,0,.12); }
+:root[data-theme="dark"] .chat-rooms { background: rgba(0,0,0,.15); }
+:root[data-theme="dark"] .room-item:hover { background: #45302A; }
+:root[data-theme="dark"] .room-item.active { background: #5A3D2C; }
+:root[data-theme="dark"] .extra-card { background: linear-gradient(180deg, #3B2A22, #45302A); }
+:root[data-theme="dark"] .dropzone { background: #3B2A22; }
+:root[data-theme="dark"] .stepper input { background: #3B2A22; }
+:root[data-theme="dark"] .toast { background: #3B2A22; color: var(--text); }
+:root[data-theme="dark"] .game-menu button, :root[data-theme="dark"] .quiz-opt { background: #3B2A22; color: var(--text); }
+:root[data-theme="dark"] .mem-card.open { background: #3B2A22; color: var(--text); }
+:root[data-theme="dark"] .welcome { color: #3a2418; }
+:root[data-theme="dark"] .welcome h1 { color: #573725; }
+:root[data-theme="dark"] .mem-hero { color: #3a2418; }
+:root[data-theme="dark"] .mem-hero h1 { color: #573725; }
