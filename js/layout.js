@@ -43,6 +43,15 @@ export async function initPage(page) {
     return new Promise(() => {});
   }
 
+  // Halaman selalu dijalankan di dalam cangkang (app.html) agar pemutar musik tidak putus saat pindah halaman.
+  if (window.top === window) {
+    const rel = location.pathname.replace(new URL(ROOT).pathname, '');
+    if (/^[A-Za-z0-9_\-\/]+\.html$/.test(rel)) {
+      location.replace(ROOT + 'app.html?p=' + rel + (location.search ? '&q=' + encodeURIComponent(location.search.slice(1)) : ''));
+      return new Promise(() => {});
+    }
+  }
+
   renderShell(ctx, page);
   loadBackground();
   subscribeBackground();
