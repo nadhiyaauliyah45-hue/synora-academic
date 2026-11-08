@@ -48,7 +48,7 @@ const MATRIX = {
   prodi:      { super_admin: 'crud', admin_universitas: 'crud', kaprodi: 'crud', admin_prodi: 'crud', dekan: 'r', dosen: 'r' },
   pmb:        { super_admin: 'crud', admin_universitas: 'crud', admin_pmb: 'crud', kaprodi: 'crud', admin_prodi: 'crud', admin_keuangan: 'r', dekan: 'r' },
   academic:   { super_admin: 'crud', admin_universitas: 'crud', kaprodi: 'crud', admin_prodi: 'crud', dekan: 'r', dosen: 'cru' },
-  portal:     { mahasiswa: 'crud', asisten_lab: 'crud' },
+  portal:     { mahasiswa: 'crud', asisten_lab: 'crud', km: 'crud', sekretaris: 'crud', bendahara: 'crud' }, // pengurus kelas juga mahasiswa: KRS, KHS, SKS, tagihan
   practicum:  { super_admin: 'crud', admin_universitas: 'crud', kaprodi: 'crud', admin_prodi: 'crud', dekan: 'r', dosen: 'crud', asisten_lab: 'cru', mahasiswa: 'r' },
   billing:    { super_admin: 'crud', admin_universitas: 'crud', admin_keuangan: 'crud', kaprodi: 'r', admin_prodi: 'r', dekan: 'r' },
   thesis:     { super_admin: 'crud', admin_universitas: 'crud', kaprodi: 'crud', admin_prodi: 'crud', dekan: 'r', dosen: 'ru', mahasiswa: 'cru', asisten_lab: 'cru' },
