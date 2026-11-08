@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SYNORA</title>
+  <link rel="icon" href="assets/logo/synora-logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="vendor/bootstrap-icons/bootstrap-icons.css">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #FFF9F0; font-family: Poppins, 'Segoe UI', Arial, sans-serif; }
+    #f { border: 0; width: 100%; height: 100%; display: block; }
+    #mini { position: fixed; right: 14px; bottom: 14px; z-index: 9999; display: none; align-items: center; gap: 8px; max-width: calc(100vw - 28px);
+      padding: 8px 10px 8px 14px; background: #573725; color: #FFF9F0; border-radius: 999px; box-shadow: 0 8px 24px rgba(0,0,0,.28); font-size: 13px; }
+    #mini.show { display: flex; }
+    #mini .t { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #mini button { background: transparent; border: 0; color: inherit; cursor: pointer; font-size: 18px; width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+    #mini button:hover { background: rgba(255,255,255,.15); }
+    #mini #mp { background: #E98532; }
+    @media (max-width: 760px) { #mini { bottom: 78px; } }
+  </style>
+</head>
+<body>
+  <iframe id="f" title="SYNORA"></iframe>
+  <div id="mini" role="region" aria-label="Pemutar musik">
+    <i class="bi bi-music-note-beamed"></i><span class="t" id="mt">-</span>
+    <button id="mprev" aria-label="Sebelumnya"><i class="bi bi-skip-start-fill"></i></button>
+    <button id="mp" aria-label="Putar/Jeda"><i class="bi bi-pause-fill"></i></button>
+    <button id="mnext" aria-label="Berikutnya"><i class="bi bi-skip-end-fill"></i></button>
+    <button id="mx" aria-label="Tutup pemutar"><i class="bi bi-x-lg"></i></button>
+  </div>
+  <script>
+    // Cangkang aplikasi: halaman dimuat di dalam iframe, sedangkan pemutar musik hidup di sini,
+    // sehingga musik tidak putus saat berpindah halaman (seperti pemutar musik di latar belakang).
+    (function () {
+      var f = document.getElementById('f');
+      var p = new URLSearchParams(location.search).get('p') || 'dashboard.html';
+      if (!/^[A-Za-z0-9_\-\/]+\.html$/.test(p) || p === 'app.html') p = 'dashboard.html';
+      var extra = new URLSearchParams(location.search).get('q') || '';
+      f.src = p + (/^[A-Za-z0-9_=&.\-]*$/.test(extra) && extra ? '?' + extra : '');
+
+      var audio = new Audio(); audio.volume = 0.7; audio.preload = 'none';
+      var S = { audio: audio, state: { list: [], cur: -1 } };
+      window.__synora = S;
+      var mini = document.getElementById('mini');
+      function ui() {
+        var t = S.state.list[S.state.cur];
+        document.getElementById('mt').textContent = t ? t.title : '-';
+        document.getElementById('mp').innerHTML = '<i class="bi ' + (audio.paused ? 'bi-play-fill' : 'bi-pause-fill') + '"></i>';
+        mini.classList.toggle('show', !!t);
+      }
+      function meta() {
+        var t = S.state.list[S.state.cur]; if (!t || !('mediaSession' in navigator)) return;
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || 'Instrumental', album: 'SYNORA',
+            artwork: [{ src: new URL('assets/icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }] });
+          navigator.mediaSession.setActionHandler('play', function () { audio.play(); });
+          navigator.mediaSession.setActionHandler('pause', function () { audio.pause(); });
+          navigator.mediaSession.setActionHandler('previoustrack', function () { S.step(-1); });
+          navigator.mediaSession.setActionHandler('nexttrack', function () { S.step(1); });
+          navigator.mediaSession.setActionHandler('seekto', function (d) { if (d.seekTime != null) audio.currentTime = d.seekTime; });
+        } catch (e) { /* browser lama */ }
+      }
+      S.play = function (list, i) {
+        S.state.list = list; S.state.cur = (i + list.length) % list.length;
+        audio.src = list[S.state.cur].url; meta();
+        var r = audio.play(); if (r && r.catch) r.catch(function () {});
+        ui();
+      };
+      S.step = function (d) { if (S.state.list.length) S.play(S.state.list, S.state.cur + d); };
+      S.sync = function (list, cur) { S.state.list = list; S.state.cur = cur; ui(); };
+      S.stop = function () { audio.pause(); S.state.cur = -1; ui(); };
+      audio.addEventListener('play', ui); audio.addEventListener('pause', ui);
+      audio.addEventListener('ended', function () { S.step(1); });
+      document.getElementById('mp').onclick = function () { audio.paused ? audio.play() : audio.pause(); };
+      document.getElementById('mprev').onclick = function () { S.step(-1); };
+      document.getElementById('mnext').onclick = function () { S.step(1); };
+      document.getElementById('mx').onclick = S.stop;
+      // judul tab mengikuti halaman di dalam iframe; keluar (halaman login) menghentikan musik
+      f.addEventListener('load', function () {
+        try {
+          var w = f.contentWindow;
+          document.title = w.document.title || 'SYNORA';
+          if (/\/index\.html$|\/$/.test(w.location.pathname)) S.stop();
+          var u = new URL(w.location.href), base = new URL('.', location.href).pathname;
+          history.replaceState(null, '', location.pathname + '?p=' + encodeURIComponent(u.pathname.replace(base, '')).replace(/%2F/g, '/') + (u.search ? '&q=' + encodeURIComponent(u.search.slice(1)) : ''));
+        } catch (e) { /* abaikan */ }
+      });
+    })();
+  </script>
+</body>
+</html>
