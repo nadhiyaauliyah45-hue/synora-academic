@@ -136,19 +136,39 @@ export function openDrawing() {
 /* =====================================================================
    MUSIK INSTRUMEN — playlist disimpan di app_settings('music_playlist'), file di bucket 'music'
    ===================================================================== */
+// Status pemutar disimpan di level modul: musik tetap berjalan saat jendela pemutar ditutup (selama masih di halaman ini).
 let audio = null;
+let list = [];
+let cur = -1;
 const fmt = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '0:00');
 
 export async function openMusic(ctx) {
   const canEdit = can(ctx.role, 'music', 'c');
-  let list = [];
-  let cur = -1;
-  if (!audio) { audio = new Audio(); audio.preload = 'none'; audio.volume = 0.7; }
+  // Di dalam cangkang (app.html) pemutar hidup di jendela induk sehingga tidak putus saat pindah halaman.
+  let S = null;
+  try { S = window.parent !== window && window.parent.__synora ? window.parent.__synora : null; } catch { S = null; }
+  if (S) { audio = S.audio; list = S.state.list.slice(); cur = S.state.cur; }
+  else if (!audio) { audio = new Audio(); audio.preload = 'none'; audio.volume = 0.7; }
 
+  function mediaSession(t) {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || 'Instrumental', album: 'SYNORA',
+        artwork: [{ src: new URL('../assets/icons/icon-512.png', import.meta.url).href, sizes: '512x512', type: 'image/png' }] });
+      navigator.mediaSession.setActionHandler('play', () => audio.play());
+      navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+      navigator.mediaSession.setActionHandler('previoustrack', () => play(cur - 1));
+      navigator.mediaSession.setActionHandler('nexttrack', () => play(cur + 1));
+      navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) audio.currentTime = d.seekTime; });
+    } catch { /* browser lama */ }
+  }
   async function loadList() {
     const { data, error } = await sb.from('app_settings').select('value').eq('key', 'music_playlist').maybeSingle();
     if (error) throw error;
-    list = Array.isArray(data?.value) ? data.value : [];
+    const fresh = Array.isArray(data?.value) ? data.value : [];
+    if (S && cur >= 0 && list[cur]) { const i = fresh.findIndex((x) => x.url === list[cur].url); cur = i; }
+    list = fresh;
+    if (S) S.sync(list, cur);
   }
   async function saveList() {
     const { error } = await sb.from('app_settings').upsert({ key: 'music_playlist', value: list, updated_by: ctx.user.id }, { onConflict: 'key' });
@@ -158,7 +178,7 @@ export async function openMusic(ctx) {
   const m = openModal({
     title: 'Musik Instrumen', footer: null,
     content: '<div class="player"><div id="pl-body"></div></div>',
-    onClose: () => { audio.pause(); audio.onended = audio.ontimeupdate = audio.onplay = audio.onpause = null; },
+    onClose: () => { audio.ontimeupdate = audio.onplay = audio.onpause = null; }, // lagu tidak dihentikan saat ditutup
   });
   const body = $('#pl-body', m.root);
 
@@ -180,6 +200,7 @@ export async function openMusic(ctx) {
         <button class="btn btn-secondary btn-icon" id="next" aria-label="Berikutnya"><i class="bi bi-skip-end-fill"></i></button>
       </div>
       <label class="flex small"><i class="bi bi-volume-up-fill"></i><input type="range" id="vol" min="0" max="1" step="0.01" value="${audio.volume}" style="flex:1"></label>
+      <button class="btn btn-secondary btn-block" id="popout" title="Pemutar kecil yang tetap menyala saat Anda berpindah halaman atau menutup tab ini"><i class="bi bi-box-arrow-up-right"></i> Buka di jendela terpisah</button>
       <div class="flex-between"><strong>Daftar Putar</strong>${canEdit ? '<button class="btn btn-secondary btn-sm" id="add-track"><i class="bi bi-plus-lg"></i> Tambah Lagu</button>' : ''}</div>
       <div id="tracks">${list.map((x, i) => `<div class="track ${i === cur ? 'active' : ''}" data-i="${i}"><span><i class="bi bi-music-note"></i> ${esc(x.title)}</span>${canEdit ? `<button class="btn btn-ghost btn-sm" data-del="${i}" aria-label="Hapus"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('')}</div>`;
     wire();
@@ -188,7 +209,9 @@ export async function openMusic(ctx) {
   function setPlayIcon() { const b = $('#pp', body); if (b) b.innerHTML = `<i class="bi ${audio.paused ? 'bi-play-fill' : 'bi-pause-fill'}"></i>`; }
   function play(i) {
     cur = (i + list.length) % list.length;
+    if (S) { S.play(list, cur); audio.addEventListener('error', () => toast('Tidak dapat memutar lagu. Periksa file/URL musik.', 'error'), { once: true }); render(); return; }
     audio.src = list[cur].url;
+    mediaSession(list[cur]);
     audio.play().catch(() => toast('Tidak dapat memutar lagu. Periksa file/URL musik.', 'error'));
     render();
   }
@@ -201,7 +224,7 @@ export async function openMusic(ctx) {
     seek.addEventListener('input', () => { if (audio.duration) audio.currentTime = (seek.value / 100) * audio.duration; });
     audio.ontimeupdate = () => { if (audio.duration && $('#seek', body)) { $('#seek', body).value = (audio.currentTime / audio.duration) * 100; $('#tcur', body).textContent = fmt(audio.currentTime); $('#tdur', body).textContent = fmt(audio.duration); } };
     audio.onplay = audio.onpause = setPlayIcon;
-    audio.onended = () => play(cur + 1);
+    if (!S) audio.onended = () => play(cur + 1);
     $$('.track', body).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('[data-del]')) return; play(Number(el.dataset.i)); }));
     $$('[data-del]', body).forEach((b) => b.addEventListener('click', async () => {
       const i = Number(b.dataset.del);
@@ -211,10 +234,17 @@ export async function openMusic(ctx) {
         await saveList();
         if (rm.path) await removeFiles('music', rm.path);
         if (i === cur) { audio.pause(); cur = -1; } else if (i < cur) cur--;
+        if (S) S.sync(list, cur);
         ok('Lagu dihapus.'); render();
       } catch (e) { fail(e); await loadList(); render(); }
     }));
     $('#add-track', body)?.addEventListener('click', addTrack);
+    $('#popout', body).addEventListener('click', () => {
+      const w = window.open(new URL('../pages/music-player.html', import.meta.url).href, 'synora-music', 'popup=yes,width=380,height=600');
+      if (!w) return toast('Pop-up diblokir browser. Izinkan pop-up untuk situs ini.', 'error');
+      audio.pause(); // pemutaran berpindah ke jendela terpisah
+      if (S) S.stop();
+    });
     setPlayIcon();
   }
 
