@@ -7,7 +7,7 @@
 **Sistem informasi akademik terpadu multi-fakultas: dari PMB hingga alumni.**
 Universitas Muhammadiyah Cirebon · Proyek Pemrograman Berbasis Platform · Kelompok 3 · TI24D
 
-[![Repo](https://img.shields.io/badge/GitHub-synora--academic-181717?logo=github)](https://github.com/nadhiyaauliyah45-hue/synora-academic)
+[![Repo](https://img.shields.io/badge/GitHub-synora--academic-181717?logo=github)](https://synora-academic.vercel.app/)
 [![Stack](https://img.shields.io/badge/stack-HTML%20%7C%20CSS%20%7C%20JS%20%7C%20Supabase-E98532)](#teknologi)
 
 </div>
