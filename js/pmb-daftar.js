@@ -12,7 +12,7 @@ function toast(msg, kind = 'ok') {
   const t = $('#toast'); t.textContent = msg; t.className = `toast ${kind} show`;
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 4200);
 }
-const steps = (n) => `<div class="steps">${[1, 2, 3].map((i) => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</div>`;
+const steps = (n) => `<div class="steps">${[['Email', 'bi-envelope'], ['Verifikasi', 'bi-shield-check'], ['Data diri', 'bi-person']].map(([l], i) => `${i ? `<div class="bar ${i < n ? 'on' : ''}"></div>` : ''}<div class="stp ${i + 1 < n ? 'done' : i + 1 === n ? 'on' : ''}"><div class="c">${i + 1 < n ? '<i class="bi bi-check-lg"></i>' : i + 1}</div><small>${l}</small></div>`).join('')}</div>`;
 const busy = (btn, on, label) => { btn.disabled = on; btn.innerHTML = on ? '<span class="spin"></span> Memproses...' : label; };
 
 async function call(action, payload) {
@@ -165,6 +165,7 @@ function viewDone(reg) {
   card.innerHTML = `<div class="done"><div class="ic"><i class="bi bi-patch-check-fill"></i></div><h1>Pendaftaran Berhasil</h1>
     <p class="sub">Simpan nomor pendaftaran Anda. Nomor ini adalah ID untuk masuk bersama kata sandi yang baru dibuat (juga kami kirim ke email Anda).</p>
     <div class="regno">${esc(reg)}</div>
+    <div class="next"><b>Langkah selanjutnya</b><ol><li>Masuk dengan nomor pendaftaran dan kata sandi Anda.</li><li>Unggah berkas: KTP, KK, ijazah, dan pas foto.</li><li>Tunggu berkas diverifikasi Admin PMB.</li><li>Ikuti tes seleksi online sesuai jadwal. Nilai di atas 75 dinyatakan lulus.</li></ol></div>
     <a class="btn" href="../index.html" style="text-decoration:none"><i class="bi bi-box-arrow-in-right"></i> Masuk untuk Memantau Status</a></div>`;
 }
 
