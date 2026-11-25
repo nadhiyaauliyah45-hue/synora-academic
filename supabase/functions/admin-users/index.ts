@@ -18,9 +18,9 @@ const json = (status: number, body: unknown) =>
 
 const ROLES = ["km", "sekretaris", "bendahara", "dosen", "super_admin", "admin_prodi", "admin_pmb", "admin_keuangan", "mahasiswa", "asisten_lab", "kaprodi", "dekan", "admin_universitas"];
 // Role staf yang wajib punya cakupan (fakultas/prodi). super_admin & admin_universitas = tingkat universitas (tanpa cakupan).
-const NEED_PROGRAM = ["kaprodi", "admin_prodi"];
+const NEED_PROGRAM = ["kaprodi", "admin_prodi", "admin_pmb"]; // PMB dikelola per prodi
 const NEED_FACULTY = ["dekan"];
-const NEED_EITHER = ["admin_pmb", "admin_keuangan"];
+const NEED_EITHER = ["admin_keuangan"];
 const UNI_WIDE = ["super_admin", "admin_universitas"];
 // Pengelola akun penuh. Admin PMB/Prodi hanya boleh membuat akun role mahasiswa untuk NIM yang sudah ada di tabel students.
 const FULL_ADMIN = ["super_admin"];

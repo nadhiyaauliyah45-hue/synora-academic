@@ -39,9 +39,10 @@ const targetOptions = (level) => {
 };
 const WL = writableLevels();
 const canC = can(ctx.role, 'calendar', 'c') && WL.length > 0;
-const canWriteEv = (ev) => uni || (ev.level === 'kelas' && ['km', 'sekretaris'].includes(ctx.role) && myClassIds.has(ev.class_id))
+const SRC = { pmb_test: 'jadwal Tes PMB', sidang: 'jadwal Sidang Skripsi', praktikum: 'jadwal Praktikum' };
+const canWriteEv = (ev) => !ev.source_type && (uni || (ev.level === 'kelas' && ['km', 'sekretaris'].includes(ctx.role) && myClassIds.has(ev.class_id))
   || (ev.level === 'prodi' && ['kaprodi', 'admin_prodi'].includes(ctx.role) && myProgIds.has(ev.program_id))
-  || (ev.level === 'fakultas' && ctx.role === 'dekan' && ev.faculty_id === scope?.faculty_id);
+  || (ev.level === 'fakultas' && ctx.role === 'dekan' && ev.faculty_id === scope?.faculty_id));
 let levelFilter = '';
 const CATS = { kuliah: 'Jadwal Kuliah', uts: 'UTS', uas: 'UAS', tugas: 'Deadline Tugas', presentasi: 'Presentasi', kelas: 'Kegiatan Kelas', kampus: 'Kegiatan Kampus', penting: 'Agenda Penting' };
 const COLOR = { kuliah: '#5B8DEF', uts: '#C96645', uas: '#9A3B2A', tugas: '#E98532', presentasi: '#8B5FBF', kelas: '#3E8E5A', kampus: '#2A9CA8', penting: '#D6475F' };
@@ -116,7 +117,7 @@ async function drawAgenda() {
 function showEvent(ev) {
   if (!ev) return;
   const m = openModal({ title: ev.title, size: 'sm',
-    content: `<span class="badge" style="background:${COLOR[ev.category]}22;color:${COLOR[ev.category]}">${CATS[ev.category]}</span><dl class="kv mt"><dt>Tingkat</dt><dd><i class="bi ${LEVEL_ICON[ev.level]}"></i> ${LEVELS[ev.level]} — ${esc(targetLabel(ev))}</dd><dt>Mulai</dt><dd>${ev.all_day ? new Date(ev.start_at).toLocaleDateString('id-ID', { dateStyle: 'long' }) : fmtDateTime(ev.start_at)}</dd>${ev.end_at ? `<dt>Selesai</dt><dd>${ev.all_day ? new Date(ev.end_at).toLocaleDateString('id-ID', { dateStyle: 'long' }) : fmtDateTime(ev.end_at)}</dd>` : ''}<dt>Lokasi</dt><dd>${esc(ev.location || '-')}</dd><dt>Pengingat</dt><dd>${ev.remind_minutes != null ? ev.remind_minutes + ' menit sebelumnya' : 'Tidak ada'}</dd></dl><p class="mt" style="white-space:pre-wrap">${esc(ev.description || '')}</p>`,
+    content: `<span class="badge" style="background:${COLOR[ev.category]}22;color:${COLOR[ev.category]}">${CATS[ev.category]}</span>${ev.source_type ? `<div class="muted small mt"><i class="bi bi-link-45deg"></i> Diatur otomatis dari ${SRC[ev.source_type] || 'jadwal sumber'}. Ubah lewat jadwal aslinya.</div>` : ''}<dl class="kv mt"><dt>Tingkat</dt><dd><i class="bi ${LEVEL_ICON[ev.level]}"></i> ${LEVELS[ev.level]} — ${esc(targetLabel(ev))}</dd><dt>Mulai</dt><dd>${ev.all_day ? new Date(ev.start_at).toLocaleDateString('id-ID', { dateStyle: 'long' }) : fmtDateTime(ev.start_at)}</dd>${ev.end_at ? `<dt>Selesai</dt><dd>${ev.all_day ? new Date(ev.end_at).toLocaleDateString('id-ID', { dateStyle: 'long' }) : fmtDateTime(ev.end_at)}</dd>` : ''}<dt>Lokasi</dt><dd>${esc(ev.location || '-')}</dd><dt>Pengingat</dt><dd>${ev.remind_minutes != null ? ev.remind_minutes + ' menit sebelumnya' : 'Tidak ada'}</dd></dl><p class="mt" style="white-space:pre-wrap">${esc(ev.description || '')}</p>`,
     footer: `${canWriteEv(ev) ? '<button class="btn btn-danger" id="e-del"><i class="bi bi-trash"></i> Hapus</button>' : ''}${canWriteEv(ev) ? '<button class="btn btn-primary" id="e-edit"><i class="bi bi-pencil"></i> Ubah</button>' : ''}<button class="btn btn-secondary" data-close>Tutup</button>` });
   $('#e-edit', m.root)?.addEventListener('click', () => { m.close(); form(ev); });
   $('#e-del', m.root)?.addEventListener('click', async () => {

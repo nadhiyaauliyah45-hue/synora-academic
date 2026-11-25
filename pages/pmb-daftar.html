@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pendaftaran PMB — Universitas Muhammadiyah Cirebon</title>
+  <link rel="icon" href="../assets/logo/synora-logo.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../vendor/bootstrap-icons/bootstrap-icons.css">
+  <style>
+    :root { --red:#C8102E; --red-d:#9d0c24; --ink:#2b2018; --muted:#7a6a5c; --bg:#FFF9F0; --card:#fff; --line:#eadfce; --ok:#1f9d55; --warn:#b45309; }
+    @media (prefers-color-scheme: dark) { :root { --ink:#f5ebdd; --muted:#b8a794; --bg:#1c1511; --card:#261d17; --line:#3b2e25; } }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Poppins,'Segoe UI',Arial,sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:24px 16px 48px; }
+    .wrap { width:100%; max-width:520px; }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+    .brand img { width:46px; height:46px; border-radius:12px; }
+    .brand b { display:block; font-size:15px; letter-spacing:.5px; } .brand span { font-size:12px; color:var(--muted); }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:26px 24px; box-shadow:0 10px 30px rgba(87,55,37,.08); }
+    h1 { font-size:21px; margin:0 0 6px; } p.sub { margin:0 0 20px; color:var(--muted); font-size:14px; line-height:1.55; }
+    .steps { display:flex; gap:6px; margin-bottom:20px; } .steps i { flex:1; height:5px; border-radius:3px; background:var(--line); } .steps i.on { background:var(--red); }
+    label { display:block; font-size:13px; font-weight:500; margin:14px 0 6px; }
+    input, select, textarea { width:100%; padding:12px 14px; font:inherit; font-size:14px; color:var(--ink); background:transparent; border:1.5px solid var(--line); border-radius:11px; outline:none; transition:border-color .15s, box-shadow .15s; }
+    input:focus, select:focus, textarea:focus { border-color:var(--red); box-shadow:0 0 0 3px rgba(200,16,46,.15); }
+    select option { color:#222; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; } @media (max-width:480px) { .row { grid-template-columns:1fr; } }
+    .btn { width:100%; margin-top:20px; padding:13px 16px; font:inherit; font-weight:600; font-size:15px; color:#fff; background:var(--red); border:0; border-radius:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:background .15s, transform .05s; }
+    .btn:hover { background:var(--red-d); } .btn:active { transform:translateY(1px); } .btn:disabled { opacity:.55; cursor:not-allowed; }
+    .btn.ghost { background:transparent; color:var(--red); border:1.5px solid var(--red); margin-top:10px; } .btn.ghost:hover { background:rgba(200,16,46,.08); }
+    .link { background:none; border:0; padding:0; font:inherit; color:var(--red); cursor:pointer; font-weight:600; } .link:disabled { color:var(--muted); cursor:not-allowed; font-weight:400; }
+    .otp { display:flex; gap:9px; justify-content:center; margin:20px 0 8px; }
+    .otp input { width:50px; height:58px; padding:0; text-align:center; font-size:24px; font-weight:700; font-family:Consolas,monospace; border-radius:12px; }
+    @media (max-width:380px) { .otp input { width:42px; height:52px; } .otp { gap:6px; } }
+    .timer { text-align:center; font-size:13px; color:var(--muted); } .timer b { color:var(--ink); font-variant-numeric:tabular-nums; }
+    .help { margin-top:18px; padding:12px 14px; border-radius:11px; background:rgba(200,16,46,.06); font-size:12.5px; line-height:1.6; color:var(--muted); }
+    .help b { color:var(--ink); }
+    .toast { position:fixed; left:50%; top:16px; transform:translate(-50%,-120%); max-width:calc(100vw - 32px); padding:12px 18px; border-radius:12px; color:#fff; font-size:14px; z-index:50; transition:transform .25s; box-shadow:0 8px 24px rgba(0,0,0,.25); }
+    .toast.show { transform:translate(-50%,0); } .toast.ok { background:var(--ok); } .toast.err { background:#b91c1c; }
+    .spin { width:16px; height:16px; border:2.5px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite; } @keyframes sp { to { transform:rotate(360deg); } }
+    .pw { position:relative; } .pw button { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:var(--muted); font-size:18px; cursor:pointer; padding:8px; }
+    .hint { font-size:12px; color:var(--muted); margin-top:5px; } .hidden { display:none !important; }
+    .done { text-align:center; } .done .ic { font-size:56px; color:var(--ok); } .regno { display:inline-block; margin:12px 0 4px; padding:12px 20px; font:700 22px Consolas,monospace; background:rgba(31,157,85,.1); border-radius:12px; letter-spacing:1px; }
+    .foot { text-align:center; margin-top:18px; font-size:13px; color:var(--muted); } .foot a { color:var(--red); font-weight:600; text-decoration:none; }
+    .empty { padding:14px; border-radius:11px; background:rgba(180,83,9,.1); color:var(--warn); font-size:13.5px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><img src="../assets/icons/icon-192.png" alt="Logo"><div><b>PMB Universitas Muhammadiyah Cirebon</b><span>Sistem Penerimaan Mahasiswa Baru</span></div></div>
+    <div class="card" id="card"><div style="text-align:center;padding:30px"><span class="spin" style="border-color:var(--line);border-top-color:var(--red)"></span></div></div>
+    <div class="foot">Sudah punya nomor pendaftaran? <a href="../index.html">Masuk</a></div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="../js/pmb-daftar.js"></script>
+</body>
+</html>

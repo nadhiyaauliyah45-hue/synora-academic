@@ -14,6 +14,7 @@ export const ROLES = {
   kaprodi: 'Ketua Program Studi (Kaprodi)',
   dekan: 'Dekan',
   admin_universitas: 'Admin Universitas',
+  calon_mahasiswa: 'Calon Mahasiswa',
 };
 export const ROLE_SHORT = ROLES;
 export const ACADEMIC_ROLES = ['super_admin', 'admin_universitas', 'dekan', 'kaprodi', 'admin_prodi', 'admin_pmb', 'admin_keuangan', 'mahasiswa', 'asisten_lab'];
@@ -49,6 +50,7 @@ const MATRIX = {
   pmb:        { super_admin: 'crud', admin_universitas: 'crud', admin_pmb: 'crud', kaprodi: 'crud', admin_prodi: 'crud', admin_keuangan: 'r', dekan: 'r' },
   academic:   { super_admin: 'crud', admin_universitas: 'crud', kaprodi: 'crud', admin_prodi: 'crud', dekan: 'r', dosen: 'cru' },
   portal:     { mahasiswa: 'crud', asisten_lab: 'crud', km: 'crud', sekretaris: 'crud', bendahara: 'crud' }, // pengurus kelas juga mahasiswa: KRS, KHS, SKS, tagihan
+  pmbsaya:    { calon_mahasiswa: 'r' }, // status pendaftaran milik sendiri (RLS: pmb_applicants.user_id = auth.uid())
   practicum:  { super_admin: 'crud', admin_universitas: 'crud', kaprodi: 'crud', admin_prodi: 'crud', dekan: 'r', dosen: 'crud', asisten_lab: 'cru', mahasiswa: 'r' },
   billing:    { super_admin: 'crud', admin_universitas: 'crud', admin_keuangan: 'crud', kaprodi: 'r', admin_prodi: 'r', dekan: 'r' },
   thesis:     { super_admin: 'crud', admin_universitas: 'crud', kaprodi: 'crud', admin_prodi: 'crud', dekan: 'r', dosen: 'ru', mahasiswa: 'cru', asisten_lab: 'cru' },
@@ -70,7 +72,7 @@ MATRIX.announcements.super_admin = 'r'; MATRIX.announcements.admin_prodi = 'crud
 export const HOME = {
   mahasiswa: 'student-portal', asisten_lab: 'student-portal', super_admin: 'kaprodi', admin_prodi: 'kaprodi',
   kaprodi: 'kaprodi', dekan: 'kaprodi', admin_universitas: 'kaprodi',
-  admin_pmb: 'pmb', admin_keuangan: 'billing',
+  admin_pmb: 'pmb', admin_keuangan: 'billing', calon_mahasiswa: 'pmb-saya',
 };
 
 export function can(role, module, action = 'r') {
@@ -93,6 +95,7 @@ export const MENU = [
   { id: 'student-portal',label: 'Portal Saya',            icon: 'bi-house-heart-fill',    module: 'portal', first: true },
   { id: 'kaprodi',       label: 'Dashboard Akademik',      icon: 'bi-bar-chart-line-fill', module: 'kaprodi', first: true },
   { id: 'prodi',         label: 'Prodi & Kelas',          icon: 'bi-diagram-3-fill',      module: 'prodi' },
+  { id: 'pmb-saya',      label: 'Pendaftaran Saya',       icon: 'bi-person-vcard-fill',   module: 'pmbsaya', first: true },
   { id: 'pmb',           label: 'PMB',                    icon: 'bi-person-plus-fill',    module: 'pmb' },
   { id: 'academic',      label: 'KRS & Nilai',            icon: 'bi-mortarboard-fill',    module: 'academic' },
   { id: 'practicum',     label: 'Praktikum & Lab',        icon: 'bi-pc-display',          module: 'practicum' },
@@ -108,6 +111,6 @@ export const menuFor = (role) => {
   return [...items.filter((m) => m.first), ...items.filter((m) => !m.first)];
 };
 // Inventaris adalah bagian dari modul Keuangan: halamannya ikut aturan 'finance'.
-export const PAGE_MODULE = { inventory: 'finance', 'class-spin': 'classspin', 'student-portal': 'portal' };
+export const PAGE_MODULE = { inventory: 'finance', 'class-spin': 'classspin', 'student-portal': 'portal', 'pmb-saya': 'pmbsaya' };
 export const moduleOfPage = (page) => PAGE_MODULE[page] || page;
 export const canSeeBalance = (role) => can(role, 'finance', 'r');

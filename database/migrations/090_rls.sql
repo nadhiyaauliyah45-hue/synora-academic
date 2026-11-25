@@ -109,7 +109,9 @@ create policy acad_class_members_w on public.class_members for all to authentica
   using (public.staff_of_program(public.program_of_class(class_id))) with check (public.staff_of_program(public.program_of_class(class_id)));
 
 -- ---- tabel dasar kelas: baca semua; tulis: staf prodi terkait, atau KM/Sekretaris untuk prodinya sendiri ----
-create policy acad_courses_sel on public.courses for select to authenticated using (public.app_role() is not null);
+create policy acad_courses_sel on public.courses for select to authenticated using (public.app_role() is not null
+  and (public.app_role() not in ('mahasiswa','asisten_lab','km','sekretaris','bendahara') or program_id is null
+       or program_id = coalesce(public.program_of_student(public.my_student_id()), public.my_class_program())));
 create policy acad_courses_w on public.courses for all to authenticated
   using (public.staff_of_program(program_id) or (public.has_role(array['km','sekretaris']) and program_id = public.my_class_program()))
   with check (public.staff_of_program(program_id) or (public.has_role(array['km','sekretaris']) and program_id = public.my_class_program()));

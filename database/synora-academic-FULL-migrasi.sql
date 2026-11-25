@@ -1,4 +1,4 @@
--- SYNORA Academic — migrasi lengkap (multi-fakultas). Jalankan SEKALI di Supabase SQL Editor setelah schema.sql, relationships.sql, rls-policies.sql.
+-- SYNORA Academic — migrasi lengkap (multi-fakultas + PMB OTP + tes PMB online + kalender otomatis). Jalankan SEKALI setelah schema.sql, relationships.sql, rls-policies.sql.
 
 -- ===== 010_lifecycle =====
 -- =====================================================================
@@ -970,7 +970,9 @@ create policy acad_class_members_w on public.class_members for all to authentica
   using (public.staff_of_program(public.program_of_class(class_id))) with check (public.staff_of_program(public.program_of_class(class_id)));
 
 -- ---- tabel dasar kelas: baca semua; tulis: staf prodi terkait, atau KM/Sekretaris untuk prodinya sendiri ----
-create policy acad_courses_sel on public.courses for select to authenticated using (public.app_role() is not null);
+create policy acad_courses_sel on public.courses for select to authenticated using (public.app_role() is not null
+  and (public.app_role() not in ('mahasiswa','asisten_lab','km','sekretaris','bendahara') or program_id is null
+       or program_id = coalesce(public.program_of_student(public.my_student_id()), public.my_class_program())));
 create policy acad_courses_w on public.courses for all to authenticated
   using (public.staff_of_program(program_id) or (public.has_role(array['km','sekretaris']) and program_id = public.my_class_program()))
   with check (public.staff_of_program(program_id) or (public.has_role(array['km','sekretaris']) and program_id = public.my_class_program()));
@@ -1277,3 +1279,530 @@ where public.program_in_scope(sp.id) group by sp.id, f.id order by f.name, sp.na
 grant select on public.v_class_roster, public.v_invoices, public.v_grades, public.v_khs, public.v_ipk, public.v_lifecycle_summary,
   public.v_cohort_graduation, public.v_graduation_yearly, public.v_ipk_distribution, public.v_pmb_summary, public.v_finance_student_summary,
   public.v_lifecycle_summary_p, public.v_cohort_graduation_p, public.v_graduation_yearly_p, public.v_ipk_distribution_p, public.v_program_summary to authenticated;
+
+-- ===== 100_pmb_otp =====
+-- 100_pmb_otp.sql — Pendaftaran PMB mandiri dengan verifikasi email OTP.
+-- Jalankan SETELAH 095. Aman dijalankan ulang.
+-- Kode OTP TIDAK PERNAH dikembalikan ke browser: fungsi penerbit hanya bisa dipanggil service_role (Edge Function pmb-register),
+-- yang mengirimkannya lewat SMTP. Di database hanya tersimpan HMAC-SHA256 (bukan teks biasa).
+
+-- 1) Role baru untuk akun calon mahasiswa (hanya boleh melihat pendaftarannya sendiri)
+alter table public.user_roles drop constraint if exists user_roles_role_check;
+alter table public.user_roles add constraint user_roles_role_check check (role in
+ ('km','sekretaris','bendahara','dosen','super_admin','admin_prodi','admin_pmb','admin_keuangan','mahasiswa','asisten_lab',
+  'kaprodi','dekan','admin_universitas','calon_mahasiswa'));
+
+-- app_role() dipakai oleh banyak policy "app_role() is not null" (profil, mata kuliah, storage, dst).
+-- Calon mahasiswa SENGAJA tidak dihitung agar tidak ikut membaca data internal kampus.
+create or replace function public.app_role() returns text
+language sql stable security definer set search_path = public as $$
+  select ur.role
+  from public.user_roles ur
+  join public.profiles p on p.id = ur.user_id
+  where ur.user_id = auth.uid() and p.is_active and ur.role <> 'calon_mahasiswa'
+$$;
+grant execute on function public.app_role() to authenticated, anon;
+
+-- 2) Kolom pendaftar mandiri
+alter table public.pmb_applicants
+  add column if not exists user_id uuid unique references auth.users(id) on delete set null,
+  add column if not exists self_registered boolean not null default false,
+  add column if not exists email_verified_at timestamptz;
+create unique index if not exists ux_pa_selfreg_email on public.pmb_applicants (lower(email)) where self_registered and email is not null;
+
+-- 3) Tabel OTP (tanpa akses dari browser)
+create table if not exists public.pmb_email_otps (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  full_name text,
+  code_hash text not null,
+  expires_at timestamptz not null,
+  attempts int not null default 0,
+  max_attempts int not null default 5,
+  used_at timestamptz,
+  invalidated_at timestamptz,
+  ip_hash text,
+  created_at timestamptz not null default now());
+create index if not exists ix_otp_email on public.pmb_email_otps(email, created_at desc);
+create index if not exists ix_otp_ip on public.pmb_email_otps(ip_hash, created_at desc);
+
+create table if not exists public.pmb_email_verified (
+  token_hash text primary key,
+  email text not null,
+  full_name text not null,
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now());
+
+alter table public.pmb_email_otps enable row level security;
+alter table public.pmb_email_verified enable row level security;
+revoke all on public.pmb_email_otps, public.pmb_email_verified from anon, authenticated;
+
+-- 4) Fungsi inti (hanya service_role)
+create or replace function public.pmb_hmac(p_pepper text, p_msg text) returns text
+language sql immutable set search_path = public, extensions as $$
+  select encode(hmac(convert_to(p_msg,'utf8'), convert_to(p_pepper,'utf8'), 'sha256'), 'hex') $$;
+
+create or replace function public.pmb_email_registered(p_email text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.pmb_applicants where lower(email) = lower(trim(p_email))) $$;
+
+create or replace function public.pmb_otp_issue(p_email text, p_name text, p_ip_hash text, p_pepper text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_email text := lower(trim(coalesce(p_email,'')));
+  v_name text := trim(coalesce(p_name,''));
+  v_last timestamptz; v_cnt int; v_oldest timestamptz; v_code text; v_reg boolean;
+begin
+  if length(v_email) > 254 or v_email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' then
+    return jsonb_build_object('ok', false, 'error', 'invalid_email'); end if;
+  if char_length(v_name) < 2 or char_length(v_name) > 120 then
+    return jsonb_build_object('ok', false, 'error', 'invalid_name'); end if;
+  if coalesce(length(p_pepper),0) < 16 then raise exception 'OTP_PEPPER belum dikonfigurasi'; end if;
+
+  -- jeda kirim ulang 60 detik
+  select max(created_at) into v_last from public.pmb_email_otps where email = v_email;
+  if v_last is not null and v_last > now() - interval '60 seconds' then
+    return jsonb_build_object('ok', false, 'error', 'cooldown', 'retry_after', ceil(extract(epoch from (v_last + interval '60 seconds' - now())))::int);
+  end if;
+  -- rate limit: 5 permintaan / jam / email, 20 / jam / IP
+  select count(*), min(created_at) into v_cnt, v_oldest from public.pmb_email_otps where email = v_email and created_at > now() - interval '1 hour';
+  if v_cnt >= 5 then
+    return jsonb_build_object('ok', false, 'error', 'rate_limited', 'retry_after', ceil(extract(epoch from (v_oldest + interval '1 hour' - now())))::int); end if;
+  if p_ip_hash is not null then
+    select count(*), min(created_at) into v_cnt, v_oldest from public.pmb_email_otps where ip_hash = p_ip_hash and created_at > now() - interval '1 hour';
+    if v_cnt >= 20 then
+      return jsonb_build_object('ok', false, 'error', 'rate_limited', 'retry_after', ceil(extract(epoch from (v_oldest + interval '1 hour' - now())))::int); end if;
+  end if;
+
+  -- OTP lama langsung tidak berlaku
+  update public.pmb_email_otps set invalidated_at = now() where email = v_email and used_at is null and invalidated_at is null;
+
+  v_reg := public.pmb_email_registered(v_email);
+  if v_reg then
+    -- Email sudah terdaftar: tidak ada kode. Tetap dicatat agar jeda dan rate limit berlaku sama (tanpa membocorkan status).
+    insert into public.pmb_email_otps(email, full_name, code_hash, expires_at, invalidated_at, ip_hash)
+    values (v_email, v_name, 'registered', now(), now(), p_ip_hash);
+    return jsonb_build_object('ok', true, 'registered', true);
+  end if;
+
+  v_code := lpad(((('x' || encode(gen_random_bytes(4),'hex'))::bit(32)::bigint) % 1000000)::text, 6, '0');
+  insert into public.pmb_email_otps(email, full_name, code_hash, expires_at, ip_hash)
+  values (v_email, v_name, public.pmb_hmac(p_pepper, v_email || ':' || v_code), now() + interval '5 minutes', p_ip_hash);
+  return jsonb_build_object('ok', true, 'registered', false, 'code', v_code, 'expires_in', 300, 'name', v_name);
+end $$;
+
+create or replace function public.pmb_otp_verify(p_email text, p_code text, p_pepper text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_email text := lower(trim(coalesce(p_email,'')));
+  r public.pmb_email_otps%rowtype; v_token text; v_left int;
+begin
+  if p_code is null or p_code !~ '^[0-9]{6}$' then return jsonb_build_object('ok', false, 'error', 'invalid'); end if;
+  select * into r from public.pmb_email_otps
+   where email = v_email and used_at is null and invalidated_at is null
+   order by created_at desc limit 1 for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'invalid'); end if;
+  if r.expires_at < now() then
+    update public.pmb_email_otps set invalidated_at = now() where id = r.id;
+    return jsonb_build_object('ok', false, 'error', 'expired'); end if;
+  if r.attempts >= r.max_attempts then
+    update public.pmb_email_otps set invalidated_at = now() where id = r.id;
+    return jsonb_build_object('ok', false, 'error', 'locked'); end if;
+
+  if r.code_hash <> public.pmb_hmac(p_pepper, v_email || ':' || p_code) then
+    update public.pmb_email_otps set attempts = attempts + 1,
+           invalidated_at = case when attempts + 1 >= max_attempts then now() end where id = r.id;
+    v_left := greatest(r.max_attempts - r.attempts - 1, 0);
+    if v_left = 0 then return jsonb_build_object('ok', false, 'error', 'locked'); end if;
+    return jsonb_build_object('ok', false, 'error', 'invalid', 'attempts_left', v_left);
+  end if;
+
+  -- benar: sekali pakai
+  update public.pmb_email_otps set used_at = now() where id = r.id;
+  v_token := encode(gen_random_bytes(32), 'hex');
+  insert into public.pmb_email_verified(token_hash, email, full_name, expires_at)
+  values (public.pmb_hmac(p_pepper, 'tok:' || v_token), v_email, coalesce(r.full_name,''), now() + interval '30 minutes');
+  return jsonb_build_object('ok', true, 'token', v_token);
+end $$;
+
+-- Periode PMB yang sedang dibuka (publik)
+create or replace function public.pmb_open_periods()
+returns table (id uuid, name text, program_id uuid, program_name text, level text, faculty_name text, open_date date, close_date date)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.name, p.program_id, sp.name, sp.level, f.name, p.open_date, p.close_date
+  from public.pmb_periods p
+  join public.study_programs sp on sp.id = p.program_id
+  left join public.faculties f on f.id = sp.faculty_id
+  where p.is_open and current_date between p.open_date and p.close_date and sp.is_active
+  order by f.name nulls last, sp.name $$;
+grant execute on function public.pmb_open_periods() to anon, authenticated;
+
+-- Tahap 1 registrasi: validasi token, kuota, dan buat baris pendaftar (token ditandai terpakai dalam satu transaksi)
+create or replace function public.pmb_register_prepare(p_token text, p_email text, p_period uuid, p_data jsonb, p_pepper text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_email text := lower(trim(coalesce(p_email,'')));
+  t public.pmb_email_verified%rowtype; per public.pmb_periods%rowtype; v_id uuid; v_reg text; v_cnt int;
+  v_gender text := nullif(trim(p_data->>'gender'),'');
+  v_bd date;
+begin
+  select * into t from public.pmb_email_verified
+   where token_hash = public.pmb_hmac(p_pepper, 'tok:' || coalesce(p_token,'')) for update;
+  if not found or t.email <> v_email then return jsonb_build_object('ok', false, 'error', 'token_invalid'); end if;
+  if t.used_at is not null then return jsonb_build_object('ok', false, 'error', 'token_used'); end if;
+  if t.expires_at < now() then return jsonb_build_object('ok', false, 'error', 'token_expired'); end if;
+  if public.pmb_email_registered(v_email) then return jsonb_build_object('ok', false, 'error', 'registered'); end if;
+
+  select * into per from public.pmb_periods where id = p_period;
+  if not found or not per.is_open or current_date not between per.open_date and per.close_date or per.program_id is null then
+    return jsonb_build_object('ok', false, 'error', 'period_closed'); end if;
+  if per.quota is not null then
+    select count(*) into v_cnt from public.pmb_applicants where period_id = per.id and status not in ('mengundurkan_diri','tidak_lolos');
+    if v_cnt >= per.quota * 5 then return jsonb_build_object('ok', false, 'error', 'period_full'); end if;  -- batas pendaftar 5x kuota
+  end if;
+  if v_gender is not null and v_gender not in ('L','P') then return jsonb_build_object('ok', false, 'error', 'invalid_data'); end if;
+  begin v_bd := nullif(p_data->>'birth_date','')::date; exception when others then return jsonb_build_object('ok', false, 'error', 'invalid_data'); end;
+  if v_bd is not null and (v_bd > current_date - interval '10 years' or v_bd < date '1940-01-01') then return jsonb_build_object('ok', false, 'error', 'invalid_data'); end if;
+
+  insert into public.pmb_applicants(period_id, full_name, gender, birth_place, birth_date, phone, email, address, school_origin, school_major, grad_year, self_registered, email_verified_at)
+  values (per.id, t.full_name, v_gender, left(nullif(trim(p_data->>'birth_place'),''),80), v_bd, left(nullif(trim(p_data->>'phone'),''),20), v_email,
+          left(nullif(trim(p_data->>'address'),''),300), left(nullif(trim(p_data->>'school_origin'),''),120), left(nullif(trim(p_data->>'school_major'),''),80),
+          nullif(p_data->>'grad_year','')::int, true, now())
+  returning id, reg_number into v_id, v_reg;
+  update public.pmb_email_verified set used_at = now() where token_hash = t.token_hash;
+  return jsonb_build_object('ok', true, 'applicant_id', v_id, 'reg_number', v_reg, 'full_name', t.full_name);
+end $$;
+
+-- Dipanggil setelah akun login berhasil dibuat
+create or replace function public.pmb_register_finish(p_applicant uuid, p_user uuid)
+returns void language sql security definer set search_path = public as $$
+  update public.pmb_applicants set user_id = p_user where id = p_applicant $$;
+
+-- Dipanggil bila pembuatan akun gagal: batalkan pendaftar dan kembalikan token agar pengguna tidak perlu OTP ulang
+create or replace function public.pmb_register_rollback(p_applicant uuid, p_token text, p_pepper text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+begin
+  delete from public.pmb_applicants where id = p_applicant and user_id is null and self_registered;
+  update public.pmb_email_verified set used_at = null where token_hash = public.pmb_hmac(p_pepper, 'tok:' || coalesce(p_token,''));
+end $$;
+
+-- Pembersihan data OTP lama (opsional dijadwalkan)
+create or replace function public.pmb_otp_cleanup() returns void language sql security definer set search_path = public as $$
+  delete from public.pmb_email_otps where created_at < now() - interval '2 days';
+  delete from public.pmb_email_verified where created_at < now() - interval '2 days' $$;
+
+revoke execute on function public.pmb_hmac(text,text), public.pmb_email_registered(text), public.pmb_otp_issue(text,text,text,text),
+  public.pmb_otp_verify(text,text,text), public.pmb_register_prepare(text,text,uuid,jsonb,text), public.pmb_register_finish(uuid,uuid),
+  public.pmb_register_rollback(uuid,text,text), public.pmb_otp_cleanup() from public, anon, authenticated;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.pmb_hmac(text,text), public.pmb_email_registered(text), public.pmb_otp_issue(text,text,text,text),
+      public.pmb_otp_verify(text,text,text), public.pmb_register_prepare(text,text,uuid,jsonb,text), public.pmb_register_finish(uuid,uuid),
+      public.pmb_register_rollback(uuid,text,text), public.pmb_otp_cleanup() to service_role;
+    grant select, insert, update, delete on public.pmb_email_otps, public.pmb_email_verified to service_role;
+  end if;
+end $$;
+
+-- 5) Calon mahasiswa hanya boleh membaca pendaftarannya sendiri (policy permisif, ditambahkan ke policy staf yang sudah ada)
+drop policy if exists pmb_app_self_sel on public.pmb_applicants;
+create policy pmb_app_self_sel on public.pmb_applicants for select to authenticated using (user_id = auth.uid());
+drop policy if exists pmb_hist_self_sel on public.pmb_status_history;
+create policy pmb_hist_self_sel on public.pmb_status_history for select to authenticated
+  using (exists (select 1 from public.pmb_applicants a where a.id = applicant_id and a.user_id = auth.uid()));
+drop policy if exists pmb_period_self_sel on public.pmb_periods;
+create policy pmb_period_self_sel on public.pmb_periods for select to authenticated
+  using (exists (select 1 from public.pmb_applicants a where a.period_id = pmb_periods.id and a.user_id = auth.uid()));
+drop policy if exists pmb_doc_self_sel on public.pmb_documents;
+create policy pmb_doc_self_sel on public.pmb_documents for select to authenticated
+  using (exists (select 1 from public.pmb_applicants a where a.id = applicant_id and a.user_id = auth.uid()));
+
+-- ===== 110_pmb_test =====
+-- 110_pmb_test.sql — Tes PMB online, unggah berkas oleh calon mahasiswa, dan sinkron jadwal otomatis ke kalender.
+-- Aturan kelulusan: nilai > 75 => diterima ; nilai <= 75 => tidak_lolos (Admin PMB tetap bisa mengoreksi).
+
+-- ============ 1. Tabel tes ============
+create table if not exists public.pmb_tests (
+  id uuid primary key default gen_random_uuid(),
+  period_id uuid not null unique references public.pmb_periods(id) on delete cascade,
+  title text not null default 'Tes Seleksi PMB',
+  duration_minutes int not null default 60 check (duration_minutes between 5 and 300),
+  pass_score numeric(5,2) not null default 75 check (pass_score between 0 and 100),
+  scheduled_start timestamptz, scheduled_end timestamptz,
+  is_published boolean not null default false,
+  created_by uuid references auth.users(id), created_at timestamptz not null default now(),
+  check (scheduled_end is null or scheduled_start is null or scheduled_end > scheduled_start));
+
+create table if not exists public.pmb_test_questions (
+  id uuid primary key default gen_random_uuid(),
+  test_id uuid not null references public.pmb_tests(id) on delete cascade,
+  position int not null default 1,
+  question text not null check (char_length(question) >= 3),
+  opt_a text not null, opt_b text not null, opt_c text, opt_d text,
+  correct char(1) not null check (correct in ('a','b','c','d')),
+  points int not null default 1 check (points between 1 and 100),
+  created_at timestamptz not null default now());
+create index if not exists ix_ptq_test on public.pmb_test_questions(test_id, position);
+
+create table if not exists public.pmb_test_attempts (
+  id uuid primary key default gen_random_uuid(),
+  test_id uuid not null references public.pmb_tests(id) on delete cascade,
+  applicant_id uuid not null references public.pmb_applicants(id) on delete cascade,
+  started_at timestamptz not null default now(), deadline timestamptz not null,
+  submitted_at timestamptz, answers jsonb not null default '{}'::jsonb,
+  score numeric(5,2), passed boolean,
+  unique (test_id, applicant_id));
+
+alter table public.pmb_tests enable row level security;
+alter table public.pmb_test_questions enable row level security;
+alter table public.pmb_test_attempts enable row level security;
+
+create or replace function public.program_of_test(tid uuid) returns uuid language sql stable security definer set search_path=public as $$
+  select public.program_of_period(period_id) from public.pmb_tests where id=tid $$;
+create or replace function public.my_applicant_id() returns uuid language sql stable security definer set search_path=public as $$
+  select id from public.pmb_applicants where user_id = auth.uid() limit 1 $$;
+grant execute on function public.program_of_test(uuid), public.my_applicant_id() to authenticated;
+
+drop policy if exists pt_staff on public.pmb_tests;
+create policy pt_staff on public.pmb_tests for all to authenticated
+  using (public.pmb_of_program(public.program_of_period(period_id))) with check (public.pmb_of_program(public.program_of_period(period_id)));
+drop policy if exists pt_view on public.pmb_tests;
+create policy pt_view on public.pmb_tests for select to authenticated using (public.pmb_view_of_program(public.program_of_period(period_id)));
+-- soal & kunci: hanya staf PMB (calon mahasiswa mengambil soal lewat fungsi tanpa kunci jawaban)
+drop policy if exists ptq_staff on public.pmb_test_questions;
+create policy ptq_staff on public.pmb_test_questions for all to authenticated
+  using (public.pmb_of_program(public.program_of_test(test_id))) with check (public.pmb_of_program(public.program_of_test(test_id)));
+drop policy if exists pta_staff_sel on public.pmb_test_attempts;
+create policy pta_staff_sel on public.pmb_test_attempts for select to authenticated using (public.pmb_view_of_program(public.program_of_test(test_id)));
+drop policy if exists pta_self_sel on public.pmb_test_attempts;
+create policy pta_self_sel on public.pmb_test_attempts for select to authenticated using (applicant_id = public.my_applicant_id());
+revoke all on public.pmb_tests, public.pmb_test_questions, public.pmb_test_attempts from anon;
+grant select, insert, update, delete on public.pmb_tests, public.pmb_test_questions to authenticated;
+grant select on public.pmb_test_attempts to authenticated;
+
+-- ============ 2. Unggah berkas oleh calon mahasiswa ============
+drop policy if exists pmb_doc_self_ins on public.pmb_documents;
+create policy pmb_doc_self_ins on public.pmb_documents for insert to authenticated
+  with check (applicant_id = public.my_applicant_id() and verified = false and uploaded_by = auth.uid()
+              and file_path like 'pmb/' || applicant_id::text || '/%');
+drop policy if exists pmb_doc_self_del on public.pmb_documents;
+create policy pmb_doc_self_del on public.pmb_documents for delete to authenticated
+  using (applicant_id = public.my_applicant_id() and verified = false);
+
+create or replace function public.academic_file_ok(p_name text, p_write boolean) returns boolean language plpgsql stable security definer set search_path=public as $$
+declare parts text[] := string_to_array(p_name,'/'); kind text := parts[1]; id uuid := public.safe_uuid(parts[2]);
+begin
+  if id is null then return false; end if;
+  if kind='pmb' then
+    return public.pmb_of_program(public.program_of_applicant(id))
+        or (not p_write and public.pmb_view_of_program(public.program_of_applicant(id)))
+        or exists (select 1 from public.pmb_applicants a where a.id=id and a.user_id=auth.uid());
+  elsif kind='payments' then
+    return public.fin_of_program(public.program_of_invoice(id))
+       or (not p_write and public.fin_view_of_program(public.program_of_invoice(id)))
+       or exists (select 1 from public.invoices i where i.id=id and i.applicant_id is not null and public.pmb_of_program(public.program_of_applicant(i.applicant_id)))
+       or exists (select 1 from public.invoices i where i.id=id and i.student_id=public.my_student_id());
+  elsif kind='thesis' then
+    return public.staff_of_student(public.student_of_thesis(id)) or (not p_write and public.view_of_student(public.student_of_thesis(id)))
+        or public.is_thesis_owner(id) or public.is_thesis_supervisor(id);
+  end if;
+  return false;
+end $$;
+grant execute on function public.academic_file_ok(text,boolean) to authenticated;
+
+-- ============ 3. Fungsi tes untuk calon mahasiswa ============
+-- Berkas wajib: ktp, kk, ijazah, pas_foto — semuanya harus sudah DIVERIFIKASI admin.
+create or replace function public.pmb_my_test_status() returns jsonb language plpgsql stable security definer set search_path=public as $$
+declare a public.pmb_applicants; t public.pmb_tests; att public.pmb_test_attempts;
+  req text[] := array['ktp','kk','ijazah','pas_foto']; missing text[] := '{}'; d text; reason text := null;
+  docs jsonb;
+begin
+  select * into a from public.pmb_applicants where user_id = auth.uid() limit 1;
+  if a.id is null then return jsonb_build_object('applicant', false); end if;
+  select coalesce(jsonb_object_agg(doc_type, jsonb_build_object('uploaded', true, 'verified', v)), '{}'::jsonb) into docs
+    from (select doc_type, bool_or(verified) as v from public.pmb_documents where applicant_id=a.id group by doc_type) x;
+  docs := coalesce(docs,'{}'::jsonb);
+  foreach d in array req loop
+    if not exists (select 1 from public.pmb_documents where applicant_id=a.id and doc_type=d and verified) then missing := missing || d; end if;
+  end loop;
+  select * into t from public.pmb_tests where period_id=a.period_id;
+  select * into att from public.pmb_test_attempts where test_id=t.id and applicant_id=a.id;
+  if att.id is not null and att.submitted_at is null and att.deadline <= now() then
+    perform public.pmb_test_finalize(att.id);
+    select * into att from public.pmb_test_attempts where id=att.id;
+    select * into a from public.pmb_applicants where id=a.id;
+  end if;
+  if att.id is not null and att.submitted_at is not null then reason := 'selesai';
+  elsif a.status not in ('pendaftar','berkas_lengkap','peserta_seleksi') then reason := 'status';
+  elsif array_length(missing,1) > 0 then reason := 'berkas';
+  elsif t.id is null or not t.is_published then reason := 'belum_tersedia';
+  elsif t.scheduled_start is not null and now() < t.scheduled_start then reason := 'belum_mulai';
+  elsif t.scheduled_end is not null and now() > t.scheduled_end and att.id is null then reason := 'sudah_lewat';
+  end if;
+  return jsonb_build_object('applicant', true, 'applicant_id', a.id, 'reg_number', a.reg_number, 'status', a.status,
+    'test_score', a.test_score, 'missing_docs', to_jsonb(missing), 'docs', docs,
+    'eligible', reason is null, 'reason', reason,
+    'test', case when t.id is null or not t.is_published then null else jsonb_build_object('id', t.id, 'title', t.title,
+       'duration_minutes', t.duration_minutes, 'pass_score', t.pass_score, 'scheduled_start', t.scheduled_start, 'scheduled_end', t.scheduled_end,
+       'question_count', (select count(*) from public.pmb_test_questions where test_id=t.id)) end,
+    'attempt', case when att.id is null then null else jsonb_build_object('started_at', att.started_at, 'deadline', att.deadline,
+       'submitted_at', att.submitted_at, 'score', att.score, 'passed', att.passed) end);
+end $$;
+
+create or replace function public.pmb_test_finalize(p_attempt uuid) returns void language plpgsql security definer set search_path=public as $$
+declare att public.pmb_test_attempts; t public.pmb_tests; total numeric; earned numeric; sc numeric; ok boolean; a public.pmb_applicants;
+begin
+  select * into att from public.pmb_test_attempts where id=p_attempt for update;
+  if att.id is null or att.submitted_at is not null then return; end if;
+  select * into t from public.pmb_tests where id=att.test_id;
+  select coalesce(sum(points),0) into total from public.pmb_test_questions where test_id=t.id;
+  select coalesce(sum(q.points),0) into earned from public.pmb_test_questions q
+    where q.test_id=t.id and lower(att.answers ->> q.id::text) = q.correct;
+  sc := case when total = 0 then 0 else round(100.0 * earned / total, 2) end;
+  ok := sc > t.pass_score;      -- tegas: harus LEBIH dari batas (75), sama dengan 75 = tidak lulus
+  update public.pmb_test_attempts set submitted_at = now(), score = sc, passed = ok where id=att.id;
+  select * into a from public.pmb_applicants where id=att.applicant_id for update;
+  perform set_config('synora.pmb_note', 'Hasil tes otomatis: nilai ' || sc || case when ok then ' (> ' else ' (<= ' end || t.pass_score || ')', true);
+  if a.status in ('pendaftar','berkas_lengkap','peserta_seleksi') then
+    update public.pmb_applicants set test_score = sc, status = case when ok then 'diterima' else 'tidak_lolos' end where id=a.id;
+  else
+    update public.pmb_applicants set test_score = sc where id=a.id;
+  end if;
+  perform set_config('synora.pmb_note', '', true);
+end $$;
+revoke all on function public.pmb_test_finalize(uuid) from public, anon, authenticated;
+
+create or replace function public.pmb_test_start() returns jsonb language plpgsql security definer set search_path=public as $$
+declare st jsonb := public.pmb_my_test_status(); a uuid; t public.pmb_tests; att public.pmb_test_attempts; qs jsonb;
+begin
+  if (st->>'applicant') <> 'true' then raise exception 'Akun ini bukan calon mahasiswa'; end if;
+  a := (st->>'applicant_id')::uuid;
+  select * into att from public.pmb_test_attempts where applicant_id=a;
+  if att.id is not null and att.submitted_at is null and att.deadline > now() then
+    null; -- lanjutkan
+  elsif (st->>'eligible') <> 'true' then
+    raise exception 'Belum bisa mengikuti tes (%)', st->>'reason';
+  else
+    select t2.* into t from public.pmb_tests t2 join public.pmb_applicants pa on pa.period_id=t2.period_id where pa.id=a;
+    if not exists (select 1 from public.pmb_test_questions where test_id=t.id) then raise exception 'Soal tes belum disiapkan'; end if;
+    insert into public.pmb_test_attempts(test_id, applicant_id, deadline)
+      values (t.id, a, least(now() + make_interval(mins => t.duration_minutes), coalesce(t.scheduled_end, 'infinity'::timestamptz)))
+      returning * into att;
+  end if;
+  select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'position', q.position, 'question', q.question,
+      'options', jsonb_strip_nulls(jsonb_build_object('a', q.opt_a, 'b', q.opt_b, 'c', q.opt_c, 'd', q.opt_d)), 'points', q.points)
+      order by q.position, q.created_at), '[]'::jsonb) into qs from public.pmb_test_questions q where q.test_id=att.test_id;
+  return jsonb_build_object('attempt_id', att.id, 'started_at', att.started_at, 'deadline', att.deadline, 'server_now', now(),
+    'answers', att.answers, 'questions', qs);
+end $$;
+
+create or replace function public.pmb_test_save(p_answers jsonb) returns jsonb language plpgsql security definer set search_path=public as $$
+declare att public.pmb_test_attempts;
+begin
+  select * into att from public.pmb_test_attempts where applicant_id = public.my_applicant_id() and submitted_at is null;
+  if att.id is null then raise exception 'Tidak ada tes yang sedang berjalan'; end if;
+  if att.deadline <= now() then perform public.pmb_test_finalize(att.id); return jsonb_build_object('expired', true); end if;
+  update public.pmb_test_attempts set answers = coalesce(p_answers,'{}'::jsonb) where id=att.id;
+  return jsonb_build_object('saved', true, 'deadline', att.deadline);
+end $$;
+
+create or replace function public.pmb_test_submit(p_answers jsonb default null) returns jsonb language plpgsql security definer set search_path=public as $$
+declare att public.pmb_test_attempts; r public.pmb_test_attempts;
+begin
+  select * into att from public.pmb_test_attempts where applicant_id = public.my_applicant_id() and submitted_at is null;
+  if att.id is null then raise exception 'Tidak ada tes yang sedang berjalan'; end if;
+  -- jawaban terakhir diterima hanya jika belum lewat batas waktu (toleransi 10 detik untuk jaringan)
+  if p_answers is not null and att.deadline + interval '10 seconds' > now() then
+    update public.pmb_test_attempts set answers = p_answers where id=att.id; end if;
+  perform public.pmb_test_finalize(att.id);
+  select * into r from public.pmb_test_attempts where id=att.id;
+  return jsonb_build_object('score', r.score, 'passed', r.passed, 'status', (select status from public.pmb_applicants where id=r.applicant_id));
+end $$;
+
+-- staf: tutup tes yang waktunya habis tetapi belum dikirim (mis. peserta menutup browser)
+create or replace function public.pmb_test_close_expired(p_test uuid) returns int language plpgsql security definer set search_path=public as $$
+declare r record; n int := 0;
+begin
+  if not public.pmb_of_program(public.program_of_test(p_test)) then raise exception 'Tidak berwenang'; end if;
+  for r in select id from public.pmb_test_attempts where test_id=p_test and submitted_at is null and deadline <= now() loop
+    perform public.pmb_test_finalize(r.id); n := n + 1; end loop;
+  return n;
+end $$;
+grant execute on function public.pmb_my_test_status(), public.pmb_test_start(), public.pmb_test_save(jsonb), public.pmb_test_submit(jsonb),
+  public.pmb_test_close_expired(uuid) to authenticated;
+
+-- ============ 4. Jadwal otomatis masuk kalender ============
+alter table public.academic_events add column if not exists source_type text, add column if not exists source_id uuid;
+create unique index if not exists ux_events_source on public.academic_events(source_type, source_id) where source_type is not null;
+
+-- agenda hasil sinkron tidak boleh diubah/dihapus manual (ubah dari jadwal asalnya)
+drop policy if exists acad_events_upd on public.academic_events;
+create policy acad_events_upd on public.academic_events for update to authenticated
+  using (source_type is null and public.event_writable(level, class_id, program_id, faculty_id))
+  with check (source_type is null and public.event_writable(level, class_id, program_id, faculty_id));
+drop policy if exists acad_events_del on public.academic_events;
+create policy acad_events_del on public.academic_events for delete to authenticated
+  using (source_type is null and public.event_writable(level, class_id, program_id, faculty_id));
+drop policy if exists acad_events_ins on public.academic_events;
+create policy acad_events_ins on public.academic_events for insert to authenticated
+  with check (source_type is null and created_by = auth.uid() and public.event_writable(level, class_id, program_id, faculty_id));
+
+create or replace function public.sync_event(p_type text, p_id uuid, p_title text, p_cat text, p_start timestamptz, p_end timestamptz,
+  p_location text, p_desc text, p_program uuid) returns void language plpgsql security definer set search_path=public as $$
+begin
+  if p_start is null or p_program is null then
+    delete from public.academic_events where source_type=p_type and source_id=p_id; return; end if;
+  insert into public.academic_events(title, category, start_at, end_at, all_day, location, description, level, program_id, created_by, source_type, source_id)
+  values (p_title, p_cat, p_start, coalesce(p_end, p_start + interval '1 hour'), false, p_location, p_desc, 'prodi', p_program, auth.uid(), p_type, p_id)
+  on conflict (source_type, source_id) where source_type is not null do update
+    set title=excluded.title, category=excluded.category, start_at=excluded.start_at, end_at=excluded.end_at,
+        location=excluded.location, description=excluded.description, program_id=excluded.program_id;
+end $$;
+revoke all on function public.sync_event(text,uuid,text,text,timestamptz,timestamptz,text,text,uuid) from public, anon, authenticated;
+
+-- (a) jadwal tes PMB
+create or replace function public.trg_sync_pmb_test() returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if tg_op = 'DELETE' then delete from public.academic_events where source_type='pmb_test' and source_id=old.id; return old; end if;
+  perform public.sync_event('pmb_test', new.id, new.title || ' (PMB)', 'kampus',
+    case when new.is_published then new.scheduled_start end, new.scheduled_end, 'Online — aplikasi SYNORA',
+    'Tes seleksi PMB online. Durasi ' || new.duration_minutes || ' menit, nilai lulus > ' || new.pass_score || '. Otomatis dari jadwal PMB.',
+    public.program_of_period(new.period_id));
+  return new; end $$;
+drop trigger if exists sync_pmb_test on public.pmb_tests;
+create trigger sync_pmb_test after insert or update or delete on public.pmb_tests for each row execute function public.trg_sync_pmb_test();
+
+-- (b) sidang skripsi
+create or replace function public.trg_sync_defense() returns trigger language plpgsql security definer set search_path=public as $$
+declare th record; st timestamptz;
+begin
+  if tg_op = 'DELETE' then delete from public.academic_events where source_type='sidang' and source_id=old.id; return old; end if;
+  select t.title, s.full_name, s.program_id into th from public.thesis t join public.students s on s.id=t.student_id where t.id=new.thesis_id;
+  st := (new.defense_date + coalesce(new.start_time, time '08:00')) at time zone 'Asia/Jakarta';
+  perform public.sync_event('sidang', new.id, 'Sidang Skripsi — ' || th.full_name, 'penting', st, st + interval '90 minutes',
+    new.room, 'Judul: ' || th.title || '. Otomatis dari jadwal sidang.', th.program_id);
+  return new; end $$;
+drop trigger if exists sync_defense on public.thesis_defenses;
+create trigger sync_defense after insert or update or delete on public.thesis_defenses for each row execute function public.trg_sync_defense();
+
+-- (c) sesi praktikum / lab
+create or replace function public.trg_sync_practicum() returns trigger language plpgsql security definer set search_path=public as $$
+declare prog uuid; st timestamptz; lab_name text; cname text;
+begin
+  if tg_op = 'DELETE' then delete from public.academic_events where source_type='praktikum' and source_id=old.id; return old; end if;
+  select coalesce(c.program_id, (select program_id from public.classes where id=new.class_id)) into prog from public.courses c where c.id=new.course_id;
+  select name into lab_name from public.labs where id=new.lab_id;
+  select name into cname from public.courses where id=new.course_id;
+  st := (new.session_date + coalesce(new.start_time, time '08:00')) at time zone 'Asia/Jakarta';
+  perform public.sync_event('praktikum', new.id, 'Praktikum: ' || new.title, 'kuliah', st,
+    case when new.end_time is not null then (new.session_date + new.end_time) at time zone 'Asia/Jakarta' end,
+    lab_name, cname || '. Otomatis dari jadwal praktikum.', prog);
+  return new; end $$;
+drop trigger if exists sync_practicum on public.practicum_sessions;
+create trigger sync_practicum after insert or update or delete on public.practicum_sessions for each row execute function public.trg_sync_practicum();
+
+-- isi ulang untuk data yang sudah ada
+update public.pmb_tests set title = title;
+update public.thesis_defenses set room = room;
+update public.practicum_sessions set title = title;
+

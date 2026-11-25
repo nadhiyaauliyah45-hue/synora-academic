@@ -31,13 +31,115 @@ const tempPassword = () => {
 function draw() {
   content.innerHTML = `<div class="page-header"><div><h1>Penerimaan Mahasiswa Baru (PMB)</h1><p>Periode, pendaftar, seleksi, dan registrasi ulang sampai NIM terbit.</p></div>
     <div class="flex">${canC && tab === 'periods' ? '<button class="btn btn-primary" id="add"><i class="bi bi-plus-lg"></i> Tambah Periode</button>' : ''}${canC && tab === 'applicants' ? '<button class="btn btn-primary" id="add"><i class="bi bi-plus-lg"></i> Tambah Pendaftar</button>' : ''}</div></div>
-    ${tabsHTML([{ id: 'applicants', label: 'Pendaftar', icon: 'bi-people' }, { id: 'periods', label: 'Periode', icon: 'bi-calendar-range' }, { id: 'summary', label: 'Ringkasan', icon: 'bi-bar-chart' }], tab)}<div id="tab-body">${loadingHTML()}</div>`;
+    ${tabsHTML([{ id: 'applicants', label: 'Pendaftar', icon: 'bi-people' }, { id: 'periods', label: 'Periode', icon: 'bi-calendar-range' }, { id: 'tests', label: 'Tes Seleksi', icon: 'bi-journal-check' }, { id: 'summary', label: 'Ringkasan', icon: 'bi-bar-chart' }], tab)}<div id="tab-body">${loadingHTML()}</div>`;
   $$('[data-tab]', content).forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; draw(); }));
   $('#add')?.addEventListener('click', () => (tab === 'periods' ? periodForm() : applicantForm()));
-  ({ applicants: loadApplicants, periods: loadPeriods, summary: loadSummary })[tab]();
+  ({ applicants: loadApplicants, periods: loadPeriods, tests: loadTests, summary: loadSummary })[tab]();
 }
 
 async function fetchPeriods() { periods = await q(sb.from('pmb_periods').select('*,academic_years(name),study_programs(name,level)').order('open_date', { ascending: false })); }
+
+
+/* ===================== TES SELEKSI ONLINE ===================== */
+const toLocal = (v) => (v ? new Date(new Date(v).getTime() - new Date(v).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
+async function loadTests() {
+  const box = $('#tab-body');
+  try {
+    await fetchPeriods();
+    const tests = await q(sb.from('pmb_tests').select('*,pmb_test_questions(count)'));
+    const byP = Object.fromEntries(tests.map((t) => [t.period_id, t]));
+    box.innerHTML = `<p class="muted small">Nilai &gt; batas lulus (default 75) otomatis berstatus <b>Diterima</b>; nilai ≤ batas otomatis <b>Tidak Lolos</b>. Jadwal tes yang dipublikasikan otomatis masuk Kalender. Peserta hanya bisa tes jika semua berkas wajib sudah Anda verifikasi.</p>` + table([
+      { label: 'Periode', render: (p) => `<b>${esc(p.name)}</b><div class="muted small">${esc(p.study_programs?.name || '')}</div>` },
+      { label: 'Jadwal', render: (p) => { const t = byP[p.id]; return t?.scheduled_start ? esc(fmtDateTime(t.scheduled_start)) : '-'; } },
+      { label: 'Durasi', render: (p) => (byP[p.id] ? byP[p.id].duration_minutes + ' mnt' : '-') },
+      { label: 'Soal', render: (p) => (byP[p.id] ? byP[p.id].pmb_test_questions?.[0]?.count ?? 0 : '-') },
+      { label: 'Lulus >', render: (p) => (byP[p.id] ? Number(byP[p.id].pass_score) : '-') },
+      { label: 'Status', render: (p) => (byP[p.id] ? (byP[p.id].is_published ? '<span class="badge ok">Dipublikasikan</span>' : '<span class="badge">Draf</span>') : '<span class="badge">Belum diatur</span>') },
+      { label: '', cls: 'actions', render: (p) => canU ? `<button class="btn btn-secondary" data-cfg="${p.id}">${byP[p.id] ? 'Atur' : 'Buat Tes'}</button>${byP[p.id] ? ` <button class="btn btn-secondary" data-qs="${p.id}">Soal</button> <button class="btn btn-secondary" data-res="${p.id}">Hasil</button>` : ''}` : '' },
+    ], periods, 'Belum ada periode PMB.');
+    const per = Object.fromEntries(periods.map((p) => [p.id, p]));
+    $$('[data-cfg]', box).forEach((b) => b.addEventListener('click', () => testForm(per[b.dataset.cfg], byP[b.dataset.cfg])));
+    $$('[data-qs]', box).forEach((b) => b.addEventListener('click', () => questionsModal(byP[b.dataset.qs], per[b.dataset.qs])));
+    $$('[data-res]', box).forEach((b) => b.addEventListener('click', () => resultsModal(byP[b.dataset.res], per[b.dataset.res])));
+  } catch (e) { box.innerHTML = errorHTML(e); }
+}
+function testForm(p, t) {
+  formModal({
+    title: `${t ? 'Atur' : 'Buat'} Tes — ${p.name}`, size: 'lg',
+    values: t ? { ...t, scheduled_start: toLocal(t.scheduled_start), scheduled_end: toLocal(t.scheduled_end) } : { title: 'Tes Seleksi PMB', duration_minutes: 60, pass_score: 75 },
+    fields: [
+      { name: 'title', label: 'Judul tes', required: true, full: true },
+      { name: 'duration_minutes', label: 'Durasi (menit)', type: 'number', required: true, min: 5 },
+      { name: 'pass_score', label: 'Batas lulus (lulus jika nilai LEBIH dari)', type: 'number', required: true, min: 0 },
+      { name: 'scheduled_start', label: 'Tes dibuka', type: 'datetime-local', required: true },
+      { name: 'scheduled_end', label: 'Tes ditutup', type: 'datetime-local', required: true },
+      { name: 'is_published', label: 'Publikasikan (tampil ke peserta & masuk Kalender)', type: 'checkbox', full: true },
+    ],
+    onSubmit: async (d) => {
+      const row = { period_id: p.id, title: d.title, duration_minutes: Number(d.duration_minutes), pass_score: Number(d.pass_score),
+        scheduled_start: new Date(d.scheduled_start).toISOString(), scheduled_end: new Date(d.scheduled_end).toISOString(), is_published: !!d.is_published };
+      if (new Date(row.scheduled_end) <= new Date(row.scheduled_start)) throw new Error('Waktu tutup harus setelah waktu buka.');
+      const r = t ? await sb.from('pmb_tests').update(row).eq('id', t.id) : await sb.from('pmb_tests').insert({ ...row, created_by: ctx.user.id });
+      if (r.error) throw r.error;
+      ok('Tes disimpan.' + (row.is_published ? ' Jadwal otomatis masuk Kalender.' : '')); loadTests();
+    },
+  });
+}
+async function questionsModal(t, p) {
+  const m = openModal({ title: `Soal — ${p.name}`, size: 'lg', content: '<div id="qbody"></div>', footer: `${canU ? '<button class="btn btn-primary" id="qadd"><i class="bi bi-plus-lg"></i> Tambah Soal</button>' : ''}<button class="btn btn-secondary" data-close>Tutup</button>` });
+  $$('[data-close]', m.root).forEach((b) => b.addEventListener('click', m.close));
+  const draw2 = async () => {
+    const rows = await q(sb.from('pmb_test_questions').select('*').eq('test_id', t.id).order('position').order('created_at'));
+    $('#qbody', m.root).innerHTML = table([
+      { label: '#', render: (r) => r.position }, { label: 'Soal', render: (r) => `${esc(r.question)}<div class="muted small">${['a', 'b', 'c', 'd'].filter((k) => r['opt_' + k]).map((k) => `${k === r.correct ? '<b>' : ''}${k.toUpperCase()}. ${esc(r['opt_' + k])}${k === r.correct ? ' ✓</b>' : ''}`).join(' · ')}</div>` },
+      { label: 'Poin', render: (r) => r.points },
+      { label: '', cls: 'actions', render: (r) => canU ? `<button class="btn btn-ghost btn-icon" data-e="${r.id}"><i class="bi bi-pencil"></i></button><button class="btn btn-danger btn-icon" data-d="${r.id}"><i class="bi bi-trash"></i></button>` : '' },
+    ], rows, 'Belum ada soal.');
+    const by = Object.fromEntries(rows.map((r) => [r.id, r]));
+    $$('[data-e]', m.root).forEach((b) => b.addEventListener('click', () => qForm(by[b.dataset.e], rows.length)));
+    $$('[data-d]', m.root).forEach((b) => b.addEventListener('click', async () => {
+      if (!(await confirmDialog('Hapus soal ini?'))) return;
+      const { error } = await sb.from('pmb_test_questions').delete().eq('id', b.dataset.d); if (error) fail(error); else draw2();
+    }));
+    return rows;
+  };
+  const qForm = (r, n) => formModal({
+    title: r ? 'Ubah Soal' : 'Tambah Soal', values: r || { position: n + 1, points: 1, correct: 'a' },
+    fields: [
+      { name: 'position', label: 'Nomor urut', type: 'number', required: true, min: 1 }, { name: 'points', label: 'Poin', type: 'number', required: true, min: 1 },
+      { name: 'question', label: 'Pertanyaan', type: 'textarea', required: true, full: true },
+      { name: 'opt_a', label: 'Pilihan A', required: true }, { name: 'opt_b', label: 'Pilihan B', required: true }, { name: 'opt_c', label: 'Pilihan C' }, { name: 'opt_d', label: 'Pilihan D' },
+      { name: 'correct', label: 'Jawaban benar', type: 'select', required: true, options: ['a', 'b', 'c', 'd'].map((k) => ({ value: k, label: k.toUpperCase() })) },
+    ],
+    onSubmit: async (d) => {
+      const row = { test_id: t.id, position: Number(d.position), points: Number(d.points), question: d.question, opt_a: d.opt_a, opt_b: d.opt_b, opt_c: d.opt_c || null, opt_d: d.opt_d || null, correct: d.correct };
+      if (!row['opt_' + row.correct]) throw new Error('Jawaban benar harus salah satu pilihan yang terisi.');
+      const x = r ? await sb.from('pmb_test_questions').update(row).eq('id', r.id) : await sb.from('pmb_test_questions').insert(row);
+      if (x.error) throw x.error; ok('Soal disimpan.'); draw2();
+    },
+  });
+  $('#qadd', m.root)?.addEventListener('click', async () => qForm(null, (await draw2()).length));
+  draw2();
+}
+async function resultsModal(t, p) {
+  const m = openModal({ title: `Hasil Tes — ${p.name}`, size: 'lg', content: loadingHTML(), footer: '<button class="btn btn-secondary" data-close>Tutup</button>' });
+  $$('[data-close]', m.root).forEach((b) => b.addEventListener('click', m.close));
+  try {
+    await sb.rpc('pmb_test_close_expired', { p_test: t.id });
+    const [at, ap] = await Promise.all([
+      q(sb.from('pmb_test_attempts').select('*').eq('test_id', t.id)),
+      q(sb.from('pmb_applicants').select('id,reg_number,full_name,status').eq('period_id', p.id).order('full_name')),
+    ]);
+    const A = Object.fromEntries(at.map((x) => [x.applicant_id, x]));
+    $('.modal-body', m.root).innerHTML = table([
+      { label: 'No. Daftar', render: (a) => `<code>${esc(a.reg_number)}</code>` }, { label: 'Nama', render: (a) => esc(a.full_name) },
+      { label: 'Tes', render: (a) => (A[a.id] ? (A[a.id].submitted_at ? 'Selesai' : 'Sedang berjalan') : 'Belum') },
+      { label: 'Nilai', render: (a) => (A[a.id]?.score != null ? Number(A[a.id].score).toFixed(2) : '-') },
+      { label: 'Hasil', render: (a) => (A[a.id]?.passed == null ? '-' : A[a.id].passed ? '<span class="badge ok">Lulus</span>' : '<span class="badge">Tidak lulus</span>') },
+      { label: 'Status', render: (a) => badge(a.status) },
+    ], ap, 'Belum ada pendaftar.');
+  } catch (e) { $('.modal-body', m.root).innerHTML = errorHTML(e); }
+}
 
 /* ===================== PERIODE ===================== */
 async function loadPeriods() {

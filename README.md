@@ -7,12 +7,12 @@
 **Sistem informasi akademik terpadu multi-fakultas: dari PMB hingga alumni.**
 Universitas Muhammadiyah Cirebon · Proyek Pemrograman Berbasis Platform · Kelompok 3 · TI24D
 
-[![Repo](https://img.shields.io/badge/GitHub-synora--academic-181717?logo=github)](https://synora-academic.vercel.app/)
+[![Repo](https://img.shields.io/badge/GitHub-synora--academic-181717?logo=github)](https://github.com/nadhiyaauliyah45-hue/synora-academic)
 [![Stack](https://img.shields.io/badge/stack-HTML%20%7C%20CSS%20%7C%20JS%20%7C%20Supabase-E98532)](#teknologi)
 
 </div>
 
-**Repositori:** https://synora-academic.vercel.app/
+**Repositori:** https://github.com/nadhiyaauliyah45-hue/synora-academic
 
 ![Cover SYNORA](assets/images/synora-cover.png)
 
@@ -35,6 +35,12 @@ SYNORA bermula dari aplikasi pengelolaan kelas TI24D, lalu dikembangkan menjadi 
 - **Kalender bertingkat:** kelas, prodi, fakultas, universitas. Agenda tingkat atas tampil ke bawah dan tidak dapat diubah oleh tingkat di bawahnya.
 - Pengelolaan akun hanya oleh Super Admin (Edge Function `admin-users`, kunci layanan hanya di server).
 
+**PMB mandiri dengan OTP email:** halaman publik `pages/pmb-daftar.html` (verifikasi email 6 digit via SMTP, berlaku 5 menit, sekali pakai, maks. 5 percobaan, kirim ulang 60 detik, rate limit, kode di-hash). Setelah terdaftar, calon mahasiswa masuk dengan nomor pendaftaran dan memantau status di "Pendaftaran Saya". Panduan SMTP: `supabase/functions/pmb-register/README.md`.
+
+**Berkas & tes seleksi online:** calon mahasiswa mengunggah berkas sendiri; setelah Admin PMB memverifikasi berkas wajib (KTP, KK, Ijazah, Pas Foto) ia dapat mengikuti tes pilihan ganda di aplikasi (jadwal, durasi, penilaian otomatis 0–100). Nilai **> 75 = Diterima**, nilai **≤ 75 = Tidak Lolos** (`database/migrations/110_pmb_test.sql`).
+
+**Kalender otomatis:** jadwal tes PMB, sidang skripsi, dan sesi praktikum yang dibuat admin otomatis muncul di Kalender prodi terkait (tidak perlu input ganda).
+
 **Modul kelas (TI24D):** absensi, kas dan inventaris, mata kuliah, perpustakaan, memories, kalender, ruang komunikasi (realtime), Class Spin.
 
 ## Teknologi
@@ -49,6 +55,7 @@ SYNORA bermula dari aplikasi pengelolaan kelas TI24D, lalu dikembangkan menjadi 
 ## Struktur folder
 
 ```
+app.html                     Cangkang aplikasi (pemutar musik tetap menyala saat pindah halaman)
 index.html, dashboard.html   Halaman masuk dan dasbor kelas
 pages/                       19 halaman modul
 js/                          Logika per modul (config.js, permissions.js, dst.)
@@ -57,6 +64,7 @@ vendor/                      Pustaka lokal
 assets/                      Logo, ikon, gambar
 database/                    SQL: schema, migrasi 010-095, seed-umc.sql
 supabase/functions/admin-users/   Edge Function pengelolaan akun
+supabase/functions/pmb-register/  Edge Function pendaftaran PMB + OTP email
 ```
 
 ## Cara menjalankan
@@ -92,7 +100,8 @@ Bobot nilai 10/20/30/40 (kehadiran/tugas/UTS/UAS), skala A ≥ 85 sampai E < 40,
 
 ## Batasan saat ini
 
-- Belum ada pendaftaran PMB mandiri untuk publik (PMB dioperasikan Admin PMB) dan belum ada payment gateway.
+- Belum ada payment gateway atau fitur lupa kata sandi pendaftar.
+- Pengiriman OTP ke email sungguhan hanya bisa diuji setelah SMTP Anda dikonfigurasi (lihat panduan).
 - Modul kelas lama (absensi, kas, inventaris, perpustakaan, memories, chat) masih satu kelas (TI24D).
 - Daftar fakultas dan prodi di `seed-umc.sql` berasal dari data kelompok dan perlu diverifikasi.
 - Tidak ada data dummy: semua tabel dimulai kosong.

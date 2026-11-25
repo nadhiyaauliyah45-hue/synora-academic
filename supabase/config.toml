@@ -3,3 +3,6 @@ project_id = "corpunnprtmguhpnyiqe"
 
 [functions.admin-users]
 verify_jwt = true
+
+[functions.pmb-register]
+verify_jwt = true   # pendaftar publik memakai anon key (otomatis dikirim oleh halaman pmb-daftar)

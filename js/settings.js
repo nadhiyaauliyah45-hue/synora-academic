@@ -128,8 +128,8 @@ async function pUsers() {
   const facOpts = [{ value: '', label: '— tidak ada —' }, ...facs.map((f) => ({ value: f.id, label: f.name }))];
   const progOpts = [{ value: '', label: '— tidak ada —' }, ...progs.map((p) => ({ value: p.id, label: `${p.level || ''} ${p.name}`.trim() }))];
   const scopeFields = [
-    { name: 'faculty_id', label: 'Cakupan Fakultas', type: 'select', options: facOpts, help: 'Wajib untuk Dekan. Opsional untuk Admin PMB/Keuangan (seluruh fakultas).' },
-    { name: 'program_id', label: 'Cakupan Program Studi', type: 'select', options: progOpts, help: 'Wajib untuk Kaprodi & Admin Prodi. Isi salah satu: fakultas ATAU prodi. Kosongkan untuk Super Admin/Admin Universitas.' },
+    { name: 'faculty_id', label: 'Cakupan Fakultas', type: 'select', options: facOpts, help: 'Wajib untuk Dekan. Opsional untuk Admin Keuangan (seluruh fakultas).' },
+    { name: 'program_id', label: 'Cakupan Program Studi', type: 'select', options: progOpts, help: 'Wajib untuk Kaprodi, Admin Prodi, dan Admin PMB (PMB per prodi). Isi salah satu: fakultas ATAU prodi. Kosongkan untuk Super Admin/Admin Universitas.' },
   ];
   box.innerHTML = `<div class="card"><div class="flex-between mb"><h3>Manajemen Pengguna</h3><button class="btn btn-primary" id="add-user"><i class="bi bi-person-plus-fill"></i> Tambah Akun</button></div>
     <div class="table-wrap"><table class="table"><thead><tr><th>Nama</th><th>NIM/Username</th><th>Role</th><th>Cakupan</th><th>Status</th><th></th></tr></thead><tbody>
@@ -140,7 +140,7 @@ async function pUsers() {
       ${self ? '' : `<button class="btn ${u.is_active ? 'btn-danger' : 'btn-secondary'} btn-sm" data-act="${u.id}">${u.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>`}</div></td></tr>`; }).join('')}</tbody></table></div>
     <p class="small muted mt">Pembuatan akun, perubahan role, dan reset password diproses aman lewat Edge Function (service key tidak pernah ada di browser).</p></div>`;
   const byId = Object.fromEntries(data.map((u) => [u.id, { ...u, role: Array.isArray(u.user_roles) ? u.user_roles[0]?.role : u.user_roles?.role }]));
-  const roleOpts = Object.entries(ROLES).map(([v, l]) => ({ value: v, label: l }));
+  const roleOpts = Object.entries(ROLES).filter(([v]) => v !== 'calon_mahasiswa').map(([v, l]) => ({ value: v, label: l }));
   $('#add-user').addEventListener('click', () => formModal({ title: 'Tambah Akun', values: { role: 'sekretaris' },
     fields: [{ name: 'full_name', label: 'Nama lengkap', required: true, maxlength: 120, full: true }, { name: 'nim', label: 'NIM / Username', required: true, pattern: '^[A-Za-z0-9._-]{3,30}$', patternMsg: '3–30 karakter huruf/angka . _ -' },
       { name: 'role', label: 'Role', type: 'select', options: roleOpts }, ...scopeFields, { name: 'password', label: 'Password awal', type: 'text', required: true, validate: (v) => (v.length < 8 ? 'Minimal 8 karakter.' : ''), full: true, help: 'Berikan ke pemilik akun; sarankan segera diganti di Pengaturan > Keamanan.' }],
