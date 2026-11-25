@@ -114,7 +114,7 @@ Kelompok 3, Kelas TI24D, Semester 5, S1 Teknik Informatika, Fakultas Teknik, Uni
 | No | Nama | NIM |
 |---|---|---|
 | 1 | Haris Rizki Saefullah | 240511047 |
-| 2 | Salwa Della Amalia | 240511150 |
+| 2 | Nadhiya Auliyah Ramadhani | 240511160 |
 | 3 | Najwa Pinasti | 240511153 |
-| 4 | Nadhiya Auliyah Ramadhani | 240511160 |
+| 4 | Salwa Della Amalia | 240511150 |
 | 5 | Rimawati | 240511184 |
